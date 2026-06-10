@@ -147,10 +147,27 @@ class TmuxManager:
         try:
             if os.environ.get("TMUX"):
                 # Already inside tmux — switch client instead of nesting
-                return subprocess.run(
+                console.print(
+                    f"[dim]Already inside tmux — switching to {session_name} "
+                    f"(Ctrl+B then ( to switch back)[/dim]"
+                )
+                result = subprocess.run(
                     ["tmux", "switch-client", "-t", session_name]
-                ).returncode
-            return subprocess.run(["tmux", "attach-session", "-t", session_name]).returncode
+                )
+                if result.returncode != 0:
+                    console.print(
+                        f"[yellow]switch-client failed. Try manually:[/yellow]\n"
+                        f"  tmux switch-client -t {session_name}\n"
+                        f"  tmux attach-session -t {session_name}"
+                    )
+                return result.returncode
+            result = subprocess.run(["tmux", "attach-session", "-t", session_name])
+            if result.returncode != 0:
+                console.print(
+                    f"[yellow]attach failed. Try manually:[/yellow]\n"
+                    f"  tmux attach-session -t {session_name}"
+                )
+            return result.returncode
         except FileNotFoundError:
             console.print("[red]tmux not found[/red]")
             return 1
