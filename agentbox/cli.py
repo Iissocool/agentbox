@@ -829,6 +829,24 @@ This file helps AI agents understand your project.
     agentbox_dir.mkdir(exist_ok=True)
     console.print(f"[green]✓ Created .agentbox/[/green]")
 
+    # Ensure .agentbox/ is in .gitignore
+    gitignore = Path(project_path) / ".gitignore"
+    entry = ".agentbox/"
+    try:
+        if gitignore.exists():
+            content = gitignore.read_text(encoding="utf-8")
+            if entry not in content.splitlines():
+                if content and not content.endswith("\n"):
+                    content += "\n"
+                content += entry + "\n"
+                gitignore.write_text(content, encoding="utf-8")
+                console.print(f"[green]✓ Added {entry} to .gitignore[/green]")
+        else:
+            gitignore.write_text(entry + "\n", encoding="utf-8")
+            console.print(f"[green]✓ Created .gitignore with {entry}[/green]")
+    except OSError:
+        console.print(f"[yellow]⚠ Could not update .gitignore[/yellow]")
+
     console.print(Panel(
         f"[bold green]🧊 Agentbox initialized for {project_name}![/bold green]\n\n"
         f"Next steps:\n"
