@@ -1,5 +1,6 @@
 """Tmux manager - create and manage tmux sessions for agent windows."""
 
+import os
 import subprocess
 from typing import Any
 
@@ -138,8 +139,17 @@ class TmuxManager:
             return False
 
     def attach_session(self, session_name: str) -> int:
-        """Attach to a tmux session."""
+        """Attach to a tmux session.
+
+        If already inside tmux, uses switch-client to avoid nesting.
+        Otherwise uses attach-session normally.
+        """
         try:
+            if os.environ.get("TMUX"):
+                # Already inside tmux — switch client instead of nesting
+                return subprocess.run(
+                    ["tmux", "switch-client", "-t", session_name]
+                ).returncode
             return subprocess.run(["tmux", "attach-session", "-t", session_name]).returncode
         except FileNotFoundError:
             console.print("[red]tmux not found[/red]")
