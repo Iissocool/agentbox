@@ -297,6 +297,130 @@ def test_cmd(ctx: click.Context, test_command: str | None) -> None:
     engine.print_test_results(results)
 
 
+# ─── Status dashboard ───────────────────────────────────────────
+
+@main.command()
+@click.pass_context
+def status(ctx: click.Context) -> None:
+    """📊 Show dashboard: all sessions, sandboxes and agents at a glance."""
+    config = ctx.obj["config"]
+    tmux_mgr = TmuxManager(config)
+    sandbox_mgr = SandboxManager(config)
+
+    # Cleanup stale sessions
+    active_sessions = tmux_mgr.list_sessions()
+    active_names = [s["name"] for s in active_sessions]
+    cleaned = cleanup_stale_sessions(active_names)
+    if cleaned > 0:
+        console.print(f"[dim]Cleaned up {cleaned} stale session(s)[/dim]")
+
+    # Get all state
+    all_state = list_all_sessions()
+
+    # Get Docker sandboxes
+    sandboxes = sandbox_mgr.list_sandboxes()
+    sandbox_map = {sb["name"]: sb for sb in sandboxes}
+
+    # ── Summary panel ──
+    n_sessions = len(active_sessions)
+    n_sandboxes = len([sb for sb in sandboxes if "Up" in sb["status"]])
+    n_agents = sum(len(s.get("windows", {})) for s in all_state.values())
+
+    summary = (
+        f"Sessions:  [cyan]{n_sessions}[/cyan]   "
+        f"Sandboxes: [green]{n_sandboxes}[/green]   "
+        f"Agents:    [yellow]{n_agents}[/yellow]"
+    )
+    console.print(Panel(summary, title="🧊 Agentbox Dashboard", border_style="cyan"))
+
+    if not active_sessions and not sandboxes:
+        console.print("\n[dim]No active sessions or sandboxes.[/dim]")
+        console.print("[dim]Run 'ag claude' to start your first agent.[/dim]")
+        return
+
+    # ── Sessions & Agents table ──
+    if active_sessions:
+        table = Table(title="🖥️  Tmux Sessions & Agents")
+        table.add_column("Session", style="cyan", width=18)
+        table.add_column("Project", style="green", width=15)
+        table.add_column("Agent", style="yellow", width=10)
+        table.add_column("Role", style="magenta", width=12)
+        table.add_column("Mode", width=12)
+        table.add_column("Container", style="blue", width=25)
+        table.add_column("Status", style="bold", width=8)
+        table.add_column("Prompt", style="dim", max_width=30)
+
+        for s in active_sessions:
+            name = s["name"]
+            state = all_state.get(name, {})
+            project = state.get("project_name", "")
+            windows_state = state.get("windows", {})
+
+            if not windows_state:
+                table.add_row(name, project, "-", "-", "-", "-", s["attached"], "")
+                continue
+
+            first = True
+            for wname, winfo in windows_state.items():
+                agent = winfo.get("agent", "-")
+                role = winfo.get("role", agent)
+                is_sandbox = winfo.get("sandbox", False)
+                mode = "🐳 sandbox" if is_sandbox else "💻 local"
+                prompt_text = winfo.get("prompt", "")[:30]
+
+                # Match sandbox container
+                container = "-"
+                if is_sandbox:
+                    # Try to find matching container
+                    for sb in sandboxes:
+                        if agent in sb["name"] and "Up" in sb["status"]:
+                            container = sb["name"]
+                            break
+
+                started = winfo.get("started_at", "")
+                status_str = "🟢" if s["attached"] == "Yes" else "⚪"
+
+                if first:
+                    table.add_row(
+                        name, project, agent, role, mode, container, status_str, prompt_text
+                    )
+                    first = False
+                else:
+                    table.add_row(
+                        "", "", agent, role, mode, container, status_str, prompt_text
+                    )
+
+        console.print(table)
+
+    # ── Docker Sandboxes table ──
+    if sandboxes:
+        sb_table = Table(title="🐳 Docker Sandboxes")
+        sb_table.add_column("Container ID", style="dim", width=12)
+        sb_table.add_column("Name", style="cyan", width=30)
+        sb_table.add_column("Agent", style="yellow", width=10)
+        sb_table.add_column("Image", style="green", width=25)
+        sb_table.add_column("Status", style="bold")
+
+        for sb in sandboxes:
+            status_style = "green" if "Up" in sb["status"] else "red"
+            sb_table.add_row(
+                sb["container_id"],
+                sb["name"],
+                sb["agent"],
+                sb["image"],
+                f"[{status_style}]{sb['status']}[/{status_style}]",
+            )
+
+        console.print(sb_table)
+
+    # ── Quick tips ──
+    console.print("\n[dim]💡 Tips:[/dim]")
+    console.print("[dim]   ag session attach <name>   — Attach to a session[/dim]")
+    console.print("[dim]   ag session windows <name> — View session windows[/dim]")
+    console.print("[dim]   ag sandbox logs <name>    — View sandbox logs[/dim]")
+    console.print("[dim]   ag sandbox kill <name>    — Stop a sandbox[/dim]")
+
+
 # ─── List commands ───────────────────────────────────────────────
 
 @main.command()

@@ -458,6 +458,47 @@ ag config reset
 
 ---
 
+### Status 命令
+
+#### `ag status` ⭐ 仪表盘
+
+一键查看所有会话、沙盒和 Agent 的全景视图。
+
+```bash
+ag status
+```
+
+**展示内容：**
+- 📊 摘要面板：活跃会话数、沙盒数、Agent 数
+- 🖥️ 会话 & Agent 表：每个 tmux 会话下的 Agent、角色、运行模式、容器、状态、Prompt
+- 🐳 Docker 沙盒表：容器 ID、名称、Agent、镜像、状态
+- 💡 快捷操作提示
+
+**示例输出：**
+```
+╭──────── 🧊 Agentbox Dashboard ────────╮
+│ Sessions: 2   Sandboxes: 3   Agents: 4 │
+╰────────────────────────────────────────╯
+
+🖥️  Tmux Sessions & Agents
+┌──────────┬─────────┬───────┬──────────┬────────────┬────────────────────────┬────────┬──────────────────────┐
+│ Session  │ Project │ Agent │ Role     │ Mode       │ Container              │ Status │ Prompt               │
+├──────────┼─────────┼───────┼──────────┼────────────┼────────────────────────┼────────┼──────────────────────┤
+│ ag-myapp │ myapp   │ claude│ coder    │ 🐳 sandbox │ agentbox-claude-myapp │ 🟢     │ 重构认证模块          │
+│          │         │ codex │ planner  │ 🐳 sandbox │ agentbox-codex-myapp  │ ⚪     │ 制定开发计划          │
+└──────────┴─────────┴───────┴──────────┴────────────┴────────────────────────┴────────┴──────────────────────┘
+
+🐳 Docker Sandboxes
+┌──────────────┬──────────────────────────┬───────┬────────────────────────┬─────────┐
+│ Container ID │ Name                     │ Agent │ Image                  │ Status  │
+├──────────────┼──────────────────────────┼───────┼────────────────────────┼─────────┤
+│ a1b2c3d4e5f6 │ agentbox-claude-myapp    │ claude│ agentbox-claude:latest │ Up 2h   │
+│ f6e5d4c3b2a1 │ agentbox-codex-myapp     │ codex │ agentbox-codex:latest  │ Up 2h   │
+└──────────────┴──────────────────────────┴───────┴────────────────────────┴─────────┘
+```
+
+---
+
 ### 其他命令
 
 #### `ag init`
@@ -772,6 +813,7 @@ ag stack down      # 停止
 | `ag stack up` | 启动 Compose 栈 |
 | `ag stack down` | 停止 Compose 栈 |
 | `ag session list` | 列出 tmux 会话 |
+| `ag status` | 📊 仪表盘：查看所有会话/沙盒/Agent |
 | `ag config show` | 查看配置 |
 | `ag init` | 初始化项目 |
 | `ag list` | 列出可用 Agent |
