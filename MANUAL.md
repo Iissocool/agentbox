@@ -420,6 +420,21 @@ ag session kill ag-myproject
 
 **会话命名规则：** `ag-<项目名>`
 
+**tmux 嵌套环境：** 如果你的终端本身运行在 tmux 中（如 VS Code 集成终端、iTerm2 自动 tmux 等），`ag session attach` 会自动检测 `$TMUX` 环境变量并使用 `tmux switch-client` 切换会话，避免嵌套报错。切换后可用 `Ctrl+B` 然后 `(` 切回原会话。
+
+如果仍然无法附加，可以手动操作：
+
+```bash
+# 查看所有会话
+tmux list-sessions
+
+# 切换到 agentbox 会话
+tmux switch-client -t ag-myproject
+
+# 或者不在 tmux 中时直接附加
+tmux attach-session -t ag-myproject
+```
+
 ---
 
 ### 配置命令
@@ -480,6 +495,7 @@ sandbox:
   auto_remove: true
   memory_limit: 4g
   cpu_limit: 2
+  default_sandbox: false    # 设为 true 则所有 Agent 默认在 Docker 沙盒中运行
   compose_timeout: 120
 
 tmux:
@@ -691,10 +707,29 @@ ag pipeline list   # 查看运行历史
 ### 场景 5：Docker 沙盒安全运行
 
 ```bash
+# 单次指定沙盒
 ag claude --sandbox -p "帮我分析这段代码"
 # 在隔离的 Docker 容器中运行，项目目录挂载到 /workspace
 ag sandbox list    # 查看运行中的沙盒
 ag sandbox logs agentbox-myproject-claude
+```
+
+### 场景 5b：默认使用 Docker 沙盒
+
+```bash
+# 编辑配置，设置默认沙盒
+ag config edit
+# 在 ~/.agentbox/config.yaml 中设置：
+#   sandbox:
+#     default_sandbox: true
+
+# 之后所有 Agent 命令自动在 Docker 中运行，无需每次加 --sandbox
+ag claude -p "帮我分析这段代码"
+ag compose codex:planner claude:coder -p "重构认证模块"
+
+# 临时在本地运行（覆盖默认配置）
+# 注意：目前 --sandbox 标志只能开启沙盒，无法关闭默认沙盒
+# 如需临时本地运行，请先在配置中关闭 default_sandbox
 ```
 
 ### 场景 6：Docker Compose 多容器栈
