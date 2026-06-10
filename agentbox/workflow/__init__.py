@@ -1,8 +1,5 @@
 """Workflow engine - complete ask -> sandbox -> agent -> diff -> merge pipeline."""
 
-try:
-    from .core import WorkflowEngine
-except ImportError:
-    WorkflowEngine = None
+from .core import WorkflowEngine
 
 __all__ = ["WorkflowEngine"]

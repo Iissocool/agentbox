@@ -11,6 +11,7 @@ from rich.text import Text
 
 from . import __version__
 from .agents import AgentRunner
+from .compose import DockerComposeManager
 from .config import (
     DEFAULT_CONFIG_DIR,
     DEFAULT_CONFIG_FILE,
@@ -25,6 +26,7 @@ from .orchestrator import Orchestrator, Pipeline, PipelineStep
 from .orchestrator.pipeline import StepType, dev_pipeline, research_pipeline, compare_pipeline
 from .state import cleanup_stale_sessions, get_session_info, list_all_sessions, unregister_session
 from .tmux_mgr import TmuxManager
+from .workflow import WorkflowEngine
 
 console = Console()
 
@@ -209,12 +211,77 @@ def compare(ctx: click.Context, agents: tuple[str, ...], prompt: str | None) -> 
 @click.option("-a", "--agent", "agent_id", default="claude", help="Agent to use (default: claude)")
 @click.option("-r", "--role", default=None, help="Role label")
 @click.option("--sandbox", is_flag=True, help="Run in Docker sandbox")
+@click.option("--test", "ask_tests", is_flag=True, help="Ask the agent to run the detected test command")
+@click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def ask(ctx: click.Context, question: tuple[str, ...], agent_id: str, role: str | None, sandbox: bool) -> None:
+def ask(
+    ctx: click.Context,
+    question: tuple[str, ...],
+    agent_id: str,
+    role: str | None,
+    sandbox: bool,
+    ask_tests: bool,
+    no_attach: bool,
+) -> None:
     """💬 Ask an agent a question about your project."""
     prompt = " ".join(question)
-    runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent(agent_id, ctx.obj["project_path"], prompt, sandbox, role=role)
+    engine = WorkflowEngine(ctx.obj["config"])
+    if ask_tests:
+        test_cmd = engine.detect_test_command(ctx.obj["project_path"])
+        if test_cmd:
+            prompt = f"{prompt}\n\nAfter making changes, run `{test_cmd}` and report the result."
+        else:
+            prompt = f"{prompt}\n\nAfter making changes, identify and run the appropriate project tests."
+    engine.ask(
+        prompt=prompt,
+        agent_id=agent_id,
+        project_path=ctx.obj["project_path"],
+        use_sandbox=sandbox,
+        role=role,
+        attach=not no_attach,
+    )
+
+
+# ─── Workflow commands ───────────────────────────────────────────
+
+@main.command(name="review")
+@click.option("--no-test", is_flag=True, help="Skip running tests")
+@click.option("--test-cmd", default=None, help="Test command to run")
+@click.pass_context
+def review(ctx: click.Context, no_test: bool, test_cmd: str | None) -> None:
+    """🔍 Review current git changes, run tests, then merge or discard."""
+    engine = WorkflowEngine(ctx.obj["config"])
+    engine.review(ctx.obj["project_path"], auto_test=not no_test, test_cmd=test_cmd)
+
+
+@main.command(name="diff")
+@click.option("--patch", is_flag=True, help="Show the full diff after the summary")
+@click.pass_context
+def diff_cmd(ctx: click.Context, patch: bool) -> None:
+    """📊 Show a git diff summary for the project."""
+    engine = WorkflowEngine(ctx.obj["config"])
+    if engine.print_diff_summary(ctx.obj["project_path"]) and patch:
+        diff_text = engine.get_git_diff(ctx.obj["project_path"])
+        console.print(diff_text or "[dim]No diff.[/dim]")
+
+
+@main.command(name="merge")
+@click.option("-m", "--message", default="Update project", help="Commit message")
+@click.pass_context
+def merge(ctx: click.Context, message: str) -> None:
+    """✅ Stage all changes and commit them."""
+    engine = WorkflowEngine(ctx.obj["config"])
+    engine.merge_changes(ctx.obj["project_path"], message)
+
+
+@main.command(name="test")
+@click.option("-c", "--command", "test_command", default=None, help="Test command to run")
+@click.pass_context
+def test_cmd(ctx: click.Context, test_command: str | None) -> None:
+    """🧪 Run project tests."""
+    engine = WorkflowEngine(ctx.obj["config"])
+    results = engine.run_tests(ctx.obj["project_path"], test_command)
+    engine.print_test_results(results)
 
 
 # ─── List commands ───────────────────────────────────────────────
@@ -336,6 +403,50 @@ def sandbox_build(ctx: click.Context, agent_id: str) -> None:
     """Build Docker image for an agent."""
     mgr = SandboxManager(ctx.obj["config"])
     mgr.build_agent_image(agent_id)
+
+
+# ─── Stack commands (Docker Compose) ─────────────────────────────
+
+@main.group(name="stack")
+@click.pass_context
+def stack_group(ctx: click.Context) -> None:
+    """🐳 Manage Docker Compose multi-agent stacks."""
+    pass
+
+
+@stack_group.command(name="up")
+@click.argument("agents", nargs=-1, required=True)
+@click.option("--foreground", is_flag=True, help="Run compose in the foreground")
+@click.pass_context
+def stack_up(ctx: click.Context, agents: tuple[str, ...], foreground: bool) -> None:
+    """Start a Docker Compose stack for AGENTS."""
+    mgr = DockerComposeManager(ctx.obj["config"])
+    mgr.up(list(agents), ctx.obj["project_path"], detach=not foreground)
+
+
+@stack_group.command(name="down")
+@click.pass_context
+def stack_down(ctx: click.Context) -> None:
+    """Stop and remove the project's Docker Compose stack."""
+    mgr = DockerComposeManager(ctx.obj["config"])
+    mgr.down(ctx.obj["project_path"])
+
+
+@stack_group.command(name="logs")
+@click.option("--tail", default=100, help="Number of log lines per service")
+@click.pass_context
+def stack_logs(ctx: click.Context, tail: int) -> None:
+    """Show Docker Compose stack logs."""
+    mgr = DockerComposeManager(ctx.obj["config"])
+    mgr.logs(ctx.obj["project_path"], tail=tail)
+
+
+@stack_group.command(name="status")
+@click.pass_context
+def stack_status(ctx: click.Context) -> None:
+    """Show Docker Compose stack status."""
+    mgr = DockerComposeManager(ctx.obj["config"])
+    mgr.status(ctx.obj["project_path"])
 
 
 # ─── Session commands ────────────────────────────────────────────

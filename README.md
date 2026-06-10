@@ -87,6 +87,28 @@ ag compare claude codex aider -p "优化这个函数"
 ```bash
 ag ask "帮我写单元测试"
 ag ask "这个 bug 怎么修" -a codex
+ag ask "实现缓存层" --test
+ag ask "重构认证模块" --sandbox
+```
+
+### 工作流命令
+
+```bash
+# 查看当前项目改动摘要
+ag diff
+
+# 查看完整 patch
+ag diff --patch
+
+# 自动检测并运行测试
+ag test
+ag test -c "pytest tests/unit"
+
+# 审查改动，运行测试，并选择 merge/discard/skip
+ag review
+
+# stage 全部改动并提交
+ag merge -m "Implement auth workflow"
 ```
 
 ### 沙盒管理
@@ -110,6 +132,20 @@ ag sandbox build claude
 # 删除沙盒
 ag sandbox kill claude-myproject
 ag sandbox kill --all
+```
+
+### Docker Compose 栈
+
+```bash
+# 为多个 agent 启动 compose 栈
+ag stack up claude codex aider
+
+# 查看状态和日志
+ag stack status
+ag stack logs --tail 200
+
+# 停止栈
+ag stack down
 ```
 
 ### Session 管理
@@ -214,6 +250,12 @@ agentbox/
 │   ├── tmux_mgr/
 │   │   ├── __init__.py
 │   │   └── manager.py      # tmux session 管理
+│   ├── workflow/
+│   │   ├── __init__.py
+│   │   └── core.py         # AGENTS.md 注入、git diff/test/merge 工作流
+│   ├── compose/
+│   │   ├── __init__.py
+│   │   └── manager.py      # Docker Compose 多容器栈
 │   └── templates/
 │       └── docker/         # Dockerfile 模板
 ├── config/                 # 示例配置
