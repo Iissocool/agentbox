@@ -31,17 +31,17 @@ class AgentRunner:
         agent_id: str,
         project_path: str | None = None,
         prompt: str | None = None,
-        use_sandbox: bool = False,
+        use_sandbox: bool = True,
         attach: bool = True,
         role: str | None = None,
     ) -> bool:
-        """Run a single agent in tmux (local or sandboxed).
+        """Run a single agent in tmux (sandboxed by default).
 
         Args:
             agent_id: The agent to run (e.g., 'claude', 'codex')
             project_path: Path to the project directory
             prompt: Optional prompt to send to the agent
-            use_sandbox: Whether to run in a Docker sandbox
+            use_sandbox: Whether to run in a Docker sandbox (default: True)
             attach: Whether to attach to the tmux session
             role: Optional role label (e.g., 'planner', 'coder')
 
@@ -96,7 +96,7 @@ class AgentRunner:
         if not shutil.which(cli_name):
             console.print(f"[yellow]⚠ '{cli_name}' not found locally.[/yellow]")
             console.print(f"[dim]Install with: {agent_config.get('install_cmd', 'N/A')}[/dim]")
-            console.print(f"[dim]Or use --sandbox to run in Docker.[/dim]")
+            console.print(f"[dim]Without --local, it will run in Docker sandbox automatically.[/dim]")
             return False
 
         cmd = self._build_agent_command(agent_id, run_cmd, prompt)
@@ -211,7 +211,7 @@ class AgentRunner:
         composition: list[dict[str, str]],
         project_path: str | None = None,
         prompt: str | None = None,
-        use_sandbox: bool = False,
+        use_sandbox: bool = True,
         attach: bool = True,
     ) -> bool:
         """Run a dynamic composition of agent:role pairs.
@@ -307,7 +307,7 @@ class AgentRunner:
         team_id: str,
         project_path: str | None = None,
         prompt: str | None = None,
-        use_sandbox: bool = False,
+        use_sandbox: bool = True,
         attach: bool = True,
     ) -> bool:
         """Run a team of agents in a single tmux session."""

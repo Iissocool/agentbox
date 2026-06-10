@@ -84,7 +84,7 @@ ag claude
 ag codex -p "帮我重构登录模块"
 
 # 4. 一键 ask 工作流
-ag ask "帮我重构登录模块，并写测试" --sandbox --test
+ag ask "帮我重构登录模块，并写测试" --test
 
 # 5. 查看修改 → 跑测试 → 合并/丢弃
 ag review
@@ -112,8 +112,11 @@ ag codex -p "修复 issue #42 的 bug"
 ag codex -r planner
 ag claude -r coder
 
-# 在 Docker 沙盒中运行
-ag claude --sandbox
+# 在 Docker 沙盒中运行（默认）
+ag claude
+
+# 在本地运行（跳过沙盒）
+ag claude --local
 
 # 后台运行（不附加到 tmux）
 ag codex --no-attach
@@ -124,7 +127,7 @@ ag codex --no-attach
 |------|------|
 | `-p, --prompt` | 发送给 Agent 的提示词 |
 | `-r, --role` | 角色标签（如 planner、coder、reviewer） |
-| `--sandbox` | 在 Docker 沙盒中运行 |
+| `--local` | 在本地运行（默认使用 Docker 沙盒） |
 | `--no-attach` | 不自动附加到 tmux 会话 |
 
 #### `ag run`
@@ -151,8 +154,8 @@ ag ask "这个项目的主要功能是什么"
 # 指定 Agent 和角色
 ag ask "重构 auth 模块" -a codex -r coder
 
-# 在沙盒中运行 + 自动跑测试
-ag ask "帮我写单元测试" --sandbox --test
+# 在沙盒中运行（默认）+ 自动跑测试
+ag ask "帮我写单元测试" --test
 
 # 后台运行
 ag ask "优化性能" --no-attach
@@ -163,7 +166,7 @@ ag ask "优化性能" --no-attach
 |------|------|
 | `-a, --agent` | 使用的 Agent（默认: claude） |
 | `-r, --role` | 角色标签 |
-| `--sandbox` | 在 Docker 沙盒中运行 |
+| `--local` | 在本地运行（默认使用 Docker 沙盒） |
 | `--test` | 自动检测并运行测试命令，附加到 prompt 末尾 |
 | `--no-attach` | 不附加到 tmux |
 
@@ -242,8 +245,8 @@ ag test -c "pytest -v" # 指定测试命令
 # 规划 → 编码 → 审查
 ag compose codex:planner claude:coder codex:reviewer
 
-# 带 prompt 和沙盒
-ag compose claude:architect aider:test-writer -p "Build auth module" --sandbox
+# 带 prompt 和本地运行
+ag compose claude:architect aider:test-writer -p "Build auth module" --local
 
 # 无角色时，agent ID 作为角色
 ag compose claude codex
@@ -495,7 +498,7 @@ sandbox:
   auto_remove: true
   memory_limit: 4g
   cpu_limit: 2
-  default_sandbox: false    # 设为 true 则所有 Agent 默认在 Docker 沙盒中运行
+  default_local: false      # 设为 true 则默认在本地运行（默认使用沙盒）
   compose_timeout: 120
 
 tmux:
@@ -664,7 +667,7 @@ teams:
 | Shell 注入防护 | 所有 prompt 通过 `shlex.quote()` 转义 |
 | Tmux 注入防护 | 使用 `tmux send-keys -l` 字面发送命令 |
 | 子进程超时 | Docker/Git/测试命令均有超时保护 |
-| 沙盒隔离 | `--sandbox` 在 Docker 容器中运行，与宿主隔离 |
+| 沙盒隔离 | 默认在 Docker 容器中运行，与宿主隔离（`--local` 跳过） |
 
 ---
 
@@ -704,32 +707,30 @@ ag pipeline dev "Build a REST API with authentication"
 ag pipeline list   # 查看运行历史
 ```
 
-### 场景 5：Docker 沙盒安全运行
+### 场景 5：Docker 沙盒运行（默认行为）
 
 ```bash
-# 单次指定沙盒
-ag claude --sandbox -p "帮我分析这段代码"
+# 默认就在 Docker 沙盒中运行
+ag claude -p "帮我分析这段代码"
 # 在隔离的 Docker 容器中运行，项目目录挂载到 /workspace
 ag sandbox list    # 查看运行中的沙盒
 ag sandbox logs agentbox-myproject-claude
 ```
 
-### 场景 5b：默认使用 Docker 沙盒
+### 场景 5b：临时在本地运行
 
 ```bash
-# 编辑配置，设置默认沙盒
+# 使用 --local 跳过沙盒，直接在本地运行
+ag claude --local -p "帮我分析这段代码"
+
+# 也可以配置默认本地运行
 ag config edit
 # 在 ~/.agentbox/config.yaml 中设置：
 #   sandbox:
-#     default_sandbox: true
+#     default_local: true
 
-# 之后所有 Agent 命令自动在 Docker 中运行，无需每次加 --sandbox
+# 之后所有 Agent 命令默认在本地运行
 ag claude -p "帮我分析这段代码"
-ag compose codex:planner claude:coder -p "重构认证模块"
-
-# 临时在本地运行（覆盖默认配置）
-# 注意：目前 --sandbox 标志只能开启沙盒，无法关闭默认沙盒
-# 如需临时本地运行，请先在配置中关闭 default_sandbox
 ```
 
 ### 场景 6：Docker Compose 多容器栈

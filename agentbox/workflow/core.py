@@ -241,7 +241,7 @@ class WorkflowEngine:
         prompt: str,
         agent_id: str = "claude",
         project_path: str | Path | None = None,
-        use_sandbox: bool = False,
+        use_sandbox: bool = True,
         role: str | None = None,
         attach: bool = True,
     ) -> bool:
@@ -324,7 +324,7 @@ class WorkflowEngine:
         if not shutil.which(cli_name):
             console.print(f"[yellow]'{cli_name}' not found locally.[/yellow]")
             console.print(f"[dim]Install with: {agent_config.get('install_cmd', 'N/A')}[/dim]")
-            console.print("[dim]Or use --sandbox.[/dim]")
+            console.print("[dim]Without --local, it will run in Docker sandbox automatically.[/dim]")
             return False
 
         cmd = self._agent_command(agent_id, agent_config, prompt)

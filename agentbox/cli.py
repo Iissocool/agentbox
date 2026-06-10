@@ -36,16 +36,17 @@ def _get_project_path(ctx: click.Context) -> str:
     return ctx.obj.get("project_path", os.getcwd())
 
 
-def _should_use_sandbox(ctx: click.Context, sandbox_flag: bool) -> bool:
+def _should_use_sandbox(ctx: click.Context, local_flag: bool) -> bool:
     """Determine whether to use sandbox.
 
-    If --sandbox is explicitly passed, always True.
-    Otherwise, fall back to config sandbox.default_sandbox.
+    Agentbox defaults to sandbox mode. If --local is passed, run locally instead.
+    Config sandbox.default_local can override the default.
     """
-    if sandbox_flag:
-        return True
+    if local_flag:
+        return False
     config = ctx.obj.get("config", {})
-    return bool(config.get("sandbox", {}).get("default_sandbox", False))
+    # default_local: true means default to local (not sandbox)
+    return not bool(config.get("sandbox", {}).get("default_local", False))
 
 
 def _parse_agent_role(spec: str) -> dict[str, str]:
@@ -91,74 +92,74 @@ def main(ctx: click.Context, project_path: str | None) -> None:
 @main.command(name="claude")
 @click.option("-p", "--prompt", default=None, help="Prompt to send to Claude")
 @click.option("-r", "--role", default=None, help="Role label (e.g., 'planner', 'coder')")
-@click.option("--sandbox", is_flag=True, help="Run in Docker sandbox")
+@click.option("--local", "run_local", is_flag=True, help="Run locally instead of Docker sandbox")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def run_claude(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
-    """🤖 Run Claude Code."""
+def run_claude(ctx: click.Context, prompt: str | None, role: str | None, run_local: bool, no_attach: bool) -> None:
+    """🤖 Run Claude Code in Docker sandbox."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("claude", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
+    runner.run_agent("claude", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, run_local), attach=not no_attach, role=role)
 
 
 @main.command(name="codex")
 @click.option("-p", "--prompt", default=None, help="Prompt to send to Codex")
 @click.option("-r", "--role", default=None, help="Role label (e.g., 'planner', 'coder')")
-@click.option("--sandbox", is_flag=True, help="Run in Docker sandbox")
+@click.option("--local", "run_local", is_flag=True, help="Run locally instead of Docker sandbox")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def run_codex(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
-    """🤖 Run OpenAI Codex."""
+def run_codex(ctx: click.Context, prompt: str | None, role: str | None, run_local: bool, no_attach: bool) -> None:
+    """🤖 Run OpenAI Codex in Docker sandbox."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("codex", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
+    runner.run_agent("codex", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, run_local), attach=not no_attach, role=role)
 
 
 @main.command(name="aider")
 @click.option("-p", "--prompt", default=None, help="Prompt to send to Aider")
 @click.option("-r", "--role", default=None, help="Role label")
-@click.option("--sandbox", is_flag=True, help="Run in Docker sandbox")
+@click.option("--local", "run_local", is_flag=True, help="Run locally instead of Docker sandbox")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def run_aider(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
-    """🤖 Run Aider."""
+def run_aider(ctx: click.Context, prompt: str | None, role: str | None, run_local: bool, no_attach: bool) -> None:
+    """🤖 Run Aider in Docker sandbox."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("aider", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
+    runner.run_agent("aider", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, run_local), attach=not no_attach, role=role)
 
 
 @main.command(name="goose")
 @click.option("-p", "--prompt", default=None, help="Prompt to send to Goose")
 @click.option("-r", "--role", default=None, help="Role label")
-@click.option("--sandbox", is_flag=True, help="Run in Docker sandbox")
+@click.option("--local", "run_local", is_flag=True, help="Run locally instead of Docker sandbox")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def run_goose(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
-    """🤖 Run Goose."""
+def run_goose(ctx: click.Context, prompt: str | None, role: str | None, run_local: bool, no_attach: bool) -> None:
+    """🤖 Run Goose in Docker sandbox."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("goose", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
+    runner.run_agent("goose", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, run_local), attach=not no_attach, role=role)
 
 
 @main.command(name="opencode")
 @click.option("-p", "--prompt", default=None, help="Prompt to send to OpenCode")
 @click.option("-r", "--role", default=None, help="Role label")
-@click.option("--sandbox", is_flag=True, help="Run in Docker sandbox")
+@click.option("--local", "run_local", is_flag=True, help="Run locally instead of Docker sandbox")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def run_opencode(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
-    """🤖 Run OpenCode."""
+def run_opencode(ctx: click.Context, prompt: str | None, role: str | None, run_local: bool, no_attach: bool) -> None:
+    """🤖 Run OpenCode in Docker sandbox."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("opencode", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
+    runner.run_agent("opencode", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, run_local), attach=not no_attach, role=role)
 
 
 @main.command()
 @click.argument("agent_id")
 @click.option("-p", "--prompt", default=None, help="Prompt to send")
 @click.option("-r", "--role", default=None, help="Role label (e.g., 'planner', 'coder')")
-@click.option("--sandbox", is_flag=True, help="Run in Docker sandbox")
+@click.option("--local", "run_local", is_flag=True, help="Run locally instead of Docker sandbox")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def run(ctx: click.Context, agent_id: str, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
-    """🚀 Run any configured agent by ID."""
+def run(ctx: click.Context, agent_id: str, prompt: str | None, role: str | None, run_local: bool, no_attach: bool) -> None:
+    """🚀 Run any configured agent by ID in Docker sandbox."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent(agent_id, ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
+    runner.run_agent(agent_id, ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, run_local), attach=not no_attach, role=role)
 
 
 # ─── Compose command (dynamic agent:role composition) ────────────
@@ -166,17 +167,17 @@ def run(ctx: click.Context, agent_id: str, prompt: str | None, role: str | None,
 @main.command()
 @click.argument("specs", nargs=-1, required=True)
 @click.option("-p", "--prompt", default=None, help="Shared prompt for all agents")
-@click.option("--sandbox", is_flag=True, help="Run in Docker sandboxes")
+@click.option("--local", "run_local", is_flag=True, help="Run locally instead of Docker sandboxes")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def compose(ctx: click.Context, specs: tuple[str, ...], prompt: str | None, sandbox: bool, no_attach: bool) -> None:
+def compose(ctx: click.Context, specs: tuple[str, ...], prompt: str | None, run_local: bool, no_attach: bool) -> None:
     """✨ Compose agents with roles dynamically.
 
     \b
     Use AGENT:ROLE syntax to assign roles:
       agentbox compose codex:planner claude:coder codex:reviewer
       agentbox compose claude:architect aider:test-writer -p "Build auth module"
-      agentbox compose codex:planner claude:coder --sandbox
+      agentbox compose codex:planner claude:coder --local
 
     \b
     Without a role, the agent ID is used as the role:
@@ -189,7 +190,7 @@ def compose(ctx: click.Context, specs: tuple[str, ...], prompt: str | None, sand
         console.print(f"  [cyan]{comp['agent']}[/cyan] as [yellow]{comp['role']}[/yellow]")
 
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_compose(composition, ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach)
+    runner.run_compose(composition, ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, run_local), attach=not no_attach)
 
 
 # ─── Team commands ───────────────────────────────────────────────
@@ -197,13 +198,13 @@ def compose(ctx: click.Context, specs: tuple[str, ...], prompt: str | None, sand
 @main.command()
 @click.argument("team_id")
 @click.option("-p", "--prompt", default=None, help="Prompt for all agents")
-@click.option("--sandbox", is_flag=True, help="Run in Docker sandboxes")
+@click.option("--local", "run_local", is_flag=True, help="Run locally instead of Docker sandboxes")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def team(ctx: click.Context, team_id: str, prompt: str | None, sandbox: bool, no_attach: bool) -> None:
-    """👥 Run a team of agents."""
+def team(ctx: click.Context, team_id: str, prompt: str | None, run_local: bool, no_attach: bool) -> None:
+    """👥 Run a team of agents in Docker sandboxes."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_team(team_id, ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach)
+    runner.run_team(team_id, ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, run_local), attach=not no_attach)
 
 
 @main.command()
@@ -222,7 +223,7 @@ def compare(ctx: click.Context, agents: tuple[str, ...], prompt: str | None) -> 
 @click.argument("question", nargs=-1, required=True)
 @click.option("-a", "--agent", "agent_id", default="claude", help="Agent to use (default: claude)")
 @click.option("-r", "--role", default=None, help="Role label")
-@click.option("--sandbox", is_flag=True, help="Run in Docker sandbox")
+@click.option("--local", "run_local", is_flag=True, help="Run locally instead of Docker sandbox")
 @click.option("--test", "ask_tests", is_flag=True, help="Ask the agent to run the detected test command")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
@@ -231,7 +232,7 @@ def ask(
     question: tuple[str, ...],
     agent_id: str,
     role: str | None,
-    sandbox: bool,
+    run_local: bool,
     ask_tests: bool,
     no_attach: bool,
 ) -> None:
@@ -248,7 +249,7 @@ def ask(
         prompt=prompt,
         agent_id=agent_id,
         project_path=ctx.obj["project_path"],
-        use_sandbox=_should_use_sandbox(ctx, sandbox),
+        use_sandbox=_should_use_sandbox(ctx, run_local),
         role=role,
         attach=not no_attach,
     )
