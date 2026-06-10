@@ -1,6 +1,7 @@
 """Agent runner - orchestrates agent execution in sandboxes or local tmux."""
 
 import os
+import shlex
 import shutil
 from pathlib import Path
 from typing import Any
@@ -98,17 +99,7 @@ class AgentRunner:
             console.print(f"[dim]Or use --sandbox to run in Docker.[/dim]")
             return False
 
-        # Build command with prompt
-        cmd = run_cmd
-        if prompt:
-            if agent_id == "claude":
-                cmd = f'{run_cmd} -p "{prompt}"'
-            elif agent_id == "codex":
-                cmd = f'{run_cmd} "{prompt}"'
-            elif agent_id == "aider":
-                cmd = f'{run_cmd} --message "{prompt}"'
-            else:
-                cmd = f'{run_cmd} "{prompt}"'
+        cmd = self._build_agent_command(agent_id, run_cmd, prompt)
 
         # Add agent window to tmux session
         window_name = self.tmux_mgr.add_agent_window(
@@ -173,9 +164,7 @@ class AgentRunner:
 
         # Build the run command for docker exec
         run_cmd = agent_config.get("run_cmd", agent_id)
-        cmd = run_cmd
-        if prompt:
-            cmd = f'{run_cmd} "{prompt}"'
+        cmd = self._build_agent_command(agent_id, run_cmd, prompt)
 
         # Add a tmux window that connects to the sandbox
         docker_cmd = f"docker exec -it agentbox-{sandbox_name} {cmd}"
@@ -268,15 +257,17 @@ class AgentRunner:
 
             if use_sandbox:
                 sandbox_name = f"{agent_id}-{project_name}"
-                self.sandbox_mgr.create_sandbox(
+                sandbox = self.sandbox_mgr.create_sandbox(
                     name=sandbox_name,
                     agent_id=agent_id,
                     project_path=project_path,
                 )
+                if not sandbox:
+                    console.print(f"[yellow]⚠ Skipping {agent_id} as '{role}' (sandbox failed)[/yellow]")
+                    continue
                 run_cmd = agent_config.get("run_cmd", agent_id)
-                cmd = f"docker exec -it agentbox-{sandbox_name} {run_cmd}"
-                if role_prompt:
-                    cmd += f' "{role_prompt}"'
+                agent_cmd = self._build_agent_command(agent_id, run_cmd, role_prompt)
+                cmd = f"docker exec -it agentbox-{sandbox_name} {agent_cmd}"
                 window_name = self.tmux_mgr.add_agent_window(
                     session_name, f"sb-{window_label}", cmd, project_path
                 )
@@ -287,14 +278,7 @@ class AgentRunner:
                     continue
 
                 run_cmd = agent_config.get("run_cmd", agent_id)
-                cmd = run_cmd
-                if role_prompt:
-                    if agent_id == "claude":
-                        cmd = f'{run_cmd} -p "{role_prompt}"'
-                    elif agent_id == "codex":
-                        cmd = f'{run_cmd} "{role_prompt}"'
-                    else:
-                        cmd = f'{run_cmd} "{role_prompt}"'
+                cmd = self._build_agent_command(agent_id, run_cmd, role_prompt)
 
                 window_name = self.tmux_mgr.add_agent_window(
                     session_name, window_label, cmd, project_path
@@ -366,15 +350,17 @@ class AgentRunner:
 
             if use_sandbox:
                 sandbox_name = f"{agent_id}-{project_name}"
-                self.sandbox_mgr.create_sandbox(
+                sandbox = self.sandbox_mgr.create_sandbox(
                     name=sandbox_name,
                     agent_id=agent_id,
                     project_path=project_path,
                 )
+                if not sandbox:
+                    console.print(f"[yellow]⚠ Skipping {agent_id} as '{role}' (sandbox failed)[/yellow]")
+                    continue
                 run_cmd = agent_config.get("run_cmd", agent_id)
-                cmd = f"docker exec -it agentbox-{sandbox_name} {run_cmd}"
-                if agent_prompt:
-                    cmd += f' "{agent_prompt}"'
+                agent_cmd = self._build_agent_command(agent_id, run_cmd, agent_prompt)
+                cmd = f"docker exec -it agentbox-{sandbox_name} {agent_cmd}"
                 window_name = self.tmux_mgr.add_agent_window(
                     session_name, f"sb-{window_label}", cmd, project_path
                 )
@@ -385,14 +371,7 @@ class AgentRunner:
                     continue
 
                 run_cmd = agent_config.get("run_cmd", agent_id)
-                cmd = run_cmd
-                if agent_prompt:
-                    if agent_id == "claude":
-                        cmd = f'{run_cmd} -p "{agent_prompt}"'
-                    elif agent_id == "codex":
-                        cmd = f'{run_cmd} "{agent_prompt}"'
-                    else:
-                        cmd = f'{run_cmd} "{agent_prompt}"'
+                cmd = self._build_agent_command(agent_id, run_cmd, agent_prompt)
 
                 window_name = self.tmux_mgr.add_agent_window(
                     session_name, window_label, cmd, project_path
@@ -442,7 +421,7 @@ class AgentRunner:
             return False
 
         run_cmd = first_config.get("run_cmd", first_agent)
-        cmd = f'{run_cmd} "{prompt}"'
+        cmd = self._build_agent_command(first_agent, run_cmd, prompt)
         window_name = self.tmux_mgr.add_agent_window(
             session_name, f"compare-{first_agent}", cmd, project_path
         )
@@ -471,7 +450,7 @@ class AgentRunner:
                 continue
 
             run_cmd = agent_config.get("run_cmd", agent_id)
-            cmd = f'{run_cmd} "{prompt}"'
+            cmd = self._build_agent_command(agent_id, run_cmd, prompt)
             self.tmux_mgr.add_agent_pane(
                 session_name, window_name, agent_id, cmd, project_path
             )
@@ -512,3 +491,14 @@ class AgentRunner:
             )
 
         console.print(table)
+
+    def _build_agent_command(self, agent_id: str, run_cmd: str, prompt: str | None = None) -> str:
+        """Build a shell-safe agent command."""
+        if not prompt:
+            return run_cmd
+        quoted = shlex.quote(prompt)
+        if agent_id == "claude":
+            return f"{run_cmd} -p {quoted}"
+        if agent_id == "aider":
+            return f"{run_cmd} --message {quoted}"
+        return f"{run_cmd} {quoted}"

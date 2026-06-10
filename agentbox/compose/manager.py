@@ -48,17 +48,16 @@ class DockerComposeManager:
 
             seen[agent_id] = seen.get(agent_id, 0) + 1
             service_name = agent_id if seen[agent_id] == 1 else f"{agent_id}-{seen[agent_id]}"
-            env_var_names = agent_config.get("env_vars", [])
+            env_var_names = list(agent_config.get("env_vars", []))
             for var_name in env_var_names:
                 value = os.environ.get(var_name)
-                if value is not None:
+                if value is not None and not any(line.startswith(f"{var_name}=") for line in env_lines):
                     env_lines.append(f"{var_name}={_shell_quote(value)}")
-            services[service_name] = {
+            service = {
                 "image": agent_config.get("docker_image", self.sandbox_config.get("base_image", "ubuntu:22.04")),
                 "container_name": f"agentbox-{path.name}-{service_name}",
                 "working_dir": mount_point,
                 "volumes": [f"{path}:{mount_point}"],
-                "env_file": [str(env_file)],
                 "environment": env_var_names,
                 "command": "tail -f /dev/null",
                 "labels": [
@@ -68,6 +67,9 @@ class DockerComposeManager:
                 ],
                 "networks": [self.network_name],
             }
+            if env_lines:
+                service["env_file"] = [str(env_file)]
+            services[service_name] = service
 
         if not services:
             raise ValueError("No valid agents were provided.")
@@ -266,7 +268,7 @@ def _ensure_gitignore(project_path: Path) -> None:
     try:
         if gitignore.exists():
             content = gitignore.read_text(encoding="utf-8")
-            if entry in content.splitlines():
+            if any(line.strip() in {".agentbox", ".agentbox/"} for line in content.splitlines()):
                 return
             # Add a blank line + entry if file doesn't end with newline
             if content and not content.endswith("\n"):

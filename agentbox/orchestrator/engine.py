@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import time
 from datetime import datetime
 from pathlib import Path
@@ -255,14 +256,12 @@ class Orchestrator:
     def _build_agent_command(self, agent_id: str, agent_config: dict[str, Any], prompt: str) -> str:
         """Build the shell command to run an agent with a prompt."""
         run_cmd = agent_config.get("run_cmd", agent_id)
-        escaped = prompt.replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+        quoted = shlex.quote(prompt)
         if agent_id == "claude":
-            return f'{run_cmd} -p "{escaped}"'
-        elif agent_id == "codex":
-            return f'{run_cmd} "{escaped}"'
-        elif agent_id == "aider":
-            return f'{run_cmd} --message "{escaped}"'
-        return f'{run_cmd} "{escaped}"'
+            return f"{run_cmd} -p {quoted}"
+        if agent_id == "aider":
+            return f"{run_cmd} --message {quoted}"
+        return f"{run_cmd} {quoted}"
 
     def _wait_for_output(
         self, session_name: str, window_name: str,
