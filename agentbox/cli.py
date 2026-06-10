@@ -36,6 +36,18 @@ def _get_project_path(ctx: click.Context) -> str:
     return ctx.obj.get("project_path", os.getcwd())
 
 
+def _should_use_sandbox(ctx: click.Context, sandbox_flag: bool) -> bool:
+    """Determine whether to use sandbox.
+
+    If --sandbox is explicitly passed, always True.
+    Otherwise, fall back to config sandbox.default_sandbox.
+    """
+    if sandbox_flag:
+        return True
+    config = ctx.obj.get("config", {})
+    return bool(config.get("sandbox", {}).get("default_sandbox", False))
+
+
 def _parse_agent_role(spec: str) -> dict[str, str]:
     """Parse an 'agent:role' specification.
 
@@ -85,7 +97,7 @@ def main(ctx: click.Context, project_path: str | None) -> None:
 def run_claude(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
     """🤖 Run Claude Code."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("claude", ctx.obj["project_path"], prompt, sandbox, attach=not no_attach, role=role)
+    runner.run_agent("claude", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
 
 
 @main.command(name="codex")
@@ -97,7 +109,7 @@ def run_claude(ctx: click.Context, prompt: str | None, role: str | None, sandbox
 def run_codex(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
     """🤖 Run OpenAI Codex."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("codex", ctx.obj["project_path"], prompt, sandbox, attach=not no_attach, role=role)
+    runner.run_agent("codex", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
 
 
 @main.command(name="aider")
@@ -109,7 +121,7 @@ def run_codex(ctx: click.Context, prompt: str | None, role: str | None, sandbox:
 def run_aider(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
     """🤖 Run Aider."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("aider", ctx.obj["project_path"], prompt, sandbox, attach=not no_attach, role=role)
+    runner.run_agent("aider", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
 
 
 @main.command(name="goose")
@@ -121,7 +133,7 @@ def run_aider(ctx: click.Context, prompt: str | None, role: str | None, sandbox:
 def run_goose(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
     """🤖 Run Goose."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("goose", ctx.obj["project_path"], prompt, sandbox, attach=not no_attach, role=role)
+    runner.run_agent("goose", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
 
 
 @main.command(name="opencode")
@@ -133,7 +145,7 @@ def run_goose(ctx: click.Context, prompt: str | None, role: str | None, sandbox:
 def run_opencode(ctx: click.Context, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
     """🤖 Run OpenCode."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("opencode", ctx.obj["project_path"], prompt, sandbox, attach=not no_attach, role=role)
+    runner.run_agent("opencode", ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
 
 
 @main.command()
@@ -146,7 +158,7 @@ def run_opencode(ctx: click.Context, prompt: str | None, role: str | None, sandb
 def run(ctx: click.Context, agent_id: str, prompt: str | None, role: str | None, sandbox: bool, no_attach: bool) -> None:
     """🚀 Run any configured agent by ID."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent(agent_id, ctx.obj["project_path"], prompt, sandbox, attach=not no_attach, role=role)
+    runner.run_agent(agent_id, ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach, role=role)
 
 
 # ─── Compose command (dynamic agent:role composition) ────────────
@@ -177,7 +189,7 @@ def compose(ctx: click.Context, specs: tuple[str, ...], prompt: str | None, sand
         console.print(f"  [cyan]{comp['agent']}[/cyan] as [yellow]{comp['role']}[/yellow]")
 
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_compose(composition, ctx.obj["project_path"], prompt, sandbox, attach=not no_attach)
+    runner.run_compose(composition, ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach)
 
 
 # ─── Team commands ───────────────────────────────────────────────
@@ -191,7 +203,7 @@ def compose(ctx: click.Context, specs: tuple[str, ...], prompt: str | None, sand
 def team(ctx: click.Context, team_id: str, prompt: str | None, sandbox: bool, no_attach: bool) -> None:
     """👥 Run a team of agents."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_team(team_id, ctx.obj["project_path"], prompt, sandbox, attach=not no_attach)
+    runner.run_team(team_id, ctx.obj["project_path"], prompt, _should_use_sandbox(ctx, sandbox), attach=not no_attach)
 
 
 @main.command()
@@ -236,7 +248,7 @@ def ask(
         prompt=prompt,
         agent_id=agent_id,
         project_path=ctx.obj["project_path"],
-        use_sandbox=sandbox,
+        use_sandbox=_should_use_sandbox(ctx, sandbox),
         role=role,
         attach=not no_attach,
     )
