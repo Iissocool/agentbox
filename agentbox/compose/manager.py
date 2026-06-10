@@ -19,6 +19,8 @@ class DockerComposeManager:
         self.config = config
         self.sandbox_config = config.get("sandbox", {})
         self.network_name = self.sandbox_config.get("network", "agentbox-net")
+        self.command_timeout = int(self.sandbox_config.get("compose_timeout", 120))
+        self._compose_command: list[str] | None = None
 
     def generate_compose(self, agents: list[str], project_path: str | Path) -> Path:
         """Generate a compose file for the requested agents.
@@ -47,7 +49,6 @@ class DockerComposeManager:
             seen[agent_id] = seen.get(agent_id, 0) + 1
             service_name = agent_id if seen[agent_id] == 1 else f"{agent_id}-{seen[agent_id]}"
             env_var_names = agent_config.get("env_vars", [])
-            # Write actual values to .env file (git-ignored)
             for var_name in env_var_names:
                 value = os.environ.get(var_name)
                 if value is not None:
@@ -58,7 +59,7 @@ class DockerComposeManager:
                 "working_dir": mount_point,
                 "volumes": [f"{path}:{mount_point}"],
                 "env_file": [str(env_file)],
-                "environment": env_var_names,  # pass-through list (names only)
+                "environment": env_var_names,
                 "command": "tail -f /dev/null",
                 "labels": [
                     "agentbox=true",
@@ -104,7 +105,8 @@ class DockerComposeManager:
         cmd = [*self._compose_cmd(), "-f", str(compose_file), "up"]
         if detach:
             cmd.append("-d")
-        return self._run(cmd, "Stack started", compose_file)
+            return self._run(cmd, "Stack started", compose_file)
+        return self._run(cmd, "Stack started", compose_file, timeout=None, stream=True)
 
     def down(self, project_path: str | Path) -> bool:
         """Stop and remove the compose stack."""
@@ -144,13 +146,26 @@ class DockerComposeManager:
         return Path(project_path).expanduser().resolve() / ".agentbox" / "docker-compose.yml"
 
     def _compose_cmd(self) -> list[str]:
+        if self._compose_command:
+            return self._compose_command
         try:
-            result = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True)
+            result = subprocess.run(
+                ["docker", "compose", "version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
         except FileNotFoundError:
-            return ["docker", "compose"]
+            self._compose_command = ["docker", "compose"]
+            return self._compose_command
+        except subprocess.TimeoutExpired:
+            self._compose_command = ["docker-compose"]
+            return self._compose_command
         if result.returncode == 0:
-            return ["docker", "compose"]
-        return ["docker-compose"]
+            self._compose_command = ["docker", "compose"]
+        else:
+            self._compose_command = ["docker-compose"]
+        return self._compose_command
 
     def _ensure_network(self) -> bool:
         try:
@@ -158,6 +173,7 @@ class DockerComposeManager:
                 ["docker", "network", "inspect", self.network_name],
                 capture_output=True,
                 text=True,
+                timeout=30,
             )
             if result.returncode == 0:
                 return True
@@ -165,6 +181,7 @@ class DockerComposeManager:
                 ["docker", "network", "create", self.network_name],
                 capture_output=True,
                 text=True,
+                timeout=30,
             )
             if create.returncode == 0:
                 return True
@@ -177,6 +194,9 @@ class DockerComposeManager:
         except FileNotFoundError:
             console.print("[red]Docker is not available.[/red]")
             return False
+        except subprocess.TimeoutExpired:
+            console.print("[red]Timed out while preparing Docker network.[/red]")
+            return False
 
     def _run(
         self,
@@ -184,14 +204,33 @@ class DockerComposeManager:
         success_title: str,
         compose_file: Path,
         passthrough: bool = False,
+        timeout: int | None = None,
+        stream: bool = False,
     ) -> bool:
+        cwd = compose_file.parent.parent
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            if stream:
+                result = subprocess.run(cmd, cwd=str(cwd), timeout=timeout)
+            else:
+                result = subprocess.run(
+                    cmd,
+                    cwd=str(cwd),
+                    capture_output=True,
+                    text=True,
+                    timeout=self.command_timeout if timeout is None else timeout,
+                )
         except FileNotFoundError:
             console.print("[red]Docker Compose is not available.[/red]")
             return False
+        except subprocess.TimeoutExpired:
+            console.print(Panel(
+                f"Command timed out after {self.command_timeout} seconds.",
+                title="Docker Compose Timeout",
+                border_style="red",
+            ))
+            return False
 
-        output = (result.stdout + result.stderr).strip()
+        output = ((getattr(result, "stdout", "") or "") + (getattr(result, "stderr", "") or "")).strip()
         if result.returncode != 0:
             console.print(Panel(output or "Command failed", title="Docker Compose Error", border_style="red"))
             return False

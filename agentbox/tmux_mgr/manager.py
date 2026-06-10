@@ -106,11 +106,7 @@ class TmuxManager:
             subprocess.run(cmd, capture_output=True, text=True, check=True)
             # Send the agent command
             if command:
-                subprocess.run(
-                    ["tmux", "send-keys", "-t", f"{session_name}:{window_name}", command, "Enter"],
-                    capture_output=True,
-                    text=True,
-                )
+                self._send_literal_command(f"{session_name}:{window_name}", command)
             console.print(f"[green]✓ Window added:[/green] {window_name} in {session_name}")
             return window_name
         except subprocess.CalledProcessError as e:
@@ -135,11 +131,7 @@ class TmuxManager:
         try:
             subprocess.run(cmd, capture_output=True, text=True, check=True)
             if command:
-                subprocess.run(
-                    ["tmux", "send-keys", "-t", target, command, "Enter"],
-                    capture_output=True,
-                    text=True,
-                )
+                self._send_literal_command(target, command)
             return True
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Failed to split pane: {e.stderr}[/red]")
@@ -224,9 +216,19 @@ class TmuxManager:
     def send_keys(self, session_name: str, window_name: str, keys: str) -> bool:
         """Send keys to a tmux window."""
         target = f"{session_name}:{window_name}"
+        return self._send_literal_command(target, keys)
+
+    def _send_literal_command(self, target: str, command: str) -> bool:
+        """Type a shell command into tmux literally, then press Enter."""
         try:
             subprocess.run(
-                ["tmux", "send-keys", "-t", target, keys, "Enter"],
+                ["tmux", "send-keys", "-t", target, "-l", command],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            subprocess.run(
+                ["tmux", "send-keys", "-t", target, "Enter"],
                 capture_output=True,
                 text=True,
                 check=True,

@@ -772,9 +772,15 @@ def config_path(ctx: click.Context) -> None:
 @click.pass_context
 def config_edit(ctx: click.Context) -> None:
     """Open config in editor."""
+    import shlex
     import subprocess
+
     editor = os.environ.get("EDITOR", "vim")
-    subprocess.run([editor, str(DEFAULT_CONFIG_FILE)])
+    editor_cmd = shlex.split(editor) or ["vim"]
+    try:
+        subprocess.run([*editor_cmd, str(DEFAULT_CONFIG_FILE)])
+    except FileNotFoundError:
+        console.print(f"[red]Editor not found:[/red] {editor}")
 
 
 @config.command(name="reset")
@@ -829,23 +835,21 @@ This file helps AI agents understand your project.
     agentbox_dir.mkdir(exist_ok=True)
     console.print(f"[green]✓ Created .agentbox/[/green]")
 
-    # Ensure .agentbox/ is in .gitignore
+    # Keep generated compose files, state, and logs out of project commits.
     gitignore = Path(project_path) / ".gitignore"
-    entry = ".agentbox/"
     try:
-        if gitignore.exists():
-            content = gitignore.read_text(encoding="utf-8")
-            if entry not in content.splitlines():
-                if content and not content.endswith("\n"):
-                    content += "\n"
-                content += entry + "\n"
-                gitignore.write_text(content, encoding="utf-8")
-                console.print(f"[green]✓ Added {entry} to .gitignore[/green]")
+        gitignore_text = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
+        ignored = any(line.strip() in {".agentbox", ".agentbox/"} for line in gitignore_text.splitlines())
+        if ignored:
+            console.print("[dim].agentbox/ already ignored[/dim]")
         else:
-            gitignore.write_text(entry + "\n", encoding="utf-8")
-            console.print(f"[green]✓ Created .gitignore with {entry}[/green]")
+            prefix = "\n" if gitignore_text and not gitignore_text.endswith("\n") else ""
+            spacer = "\n" if gitignore_text else ""
+            with open(gitignore, "a", encoding="utf-8") as f:
+                f.write(f"{prefix}{spacer}# Agentbox runtime\n.agentbox/\n")
+            console.print("[green]✓ Added .agentbox/ to .gitignore[/green]")
     except OSError:
-        console.print(f"[yellow]⚠ Could not update .gitignore[/yellow]")
+        console.print("[yellow]⚠ Could not update .gitignore[/yellow]")
 
     console.print(Panel(
         f"[bold green]🧊 Agentbox initialized for {project_name}![/bold green]\n\n"

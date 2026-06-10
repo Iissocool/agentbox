@@ -168,7 +168,12 @@ class WorkflowEngine:
             return "pytest"
         return None
 
-    def run_tests(self, project_path: str | Path, command: str | None = None) -> dict[str, Any]:
+    def run_tests(
+        self,
+        project_path: str | Path,
+        command: str | None = None,
+        timeout: int = 600,
+    ) -> dict[str, Any]:
         """Run the detected or provided test command."""
         test_cmd = command or self.detect_test_command(project_path)
         if not test_cmd:
@@ -181,10 +186,12 @@ class WorkflowEngine:
 
         try:
             result = subprocess.run(
-                shlex.split(test_cmd),
+                test_cmd,
                 cwd=str(Path(project_path).expanduser().resolve()),
                 capture_output=True,
                 text=True,
+                shell=True,
+                timeout=timeout,
             )
             return {
                 "command": test_cmd,
@@ -198,6 +205,13 @@ class WorkflowEngine:
                 "returncode": 127,
                 "stdout": "",
                 "stderr": str(exc),
+            }
+        except subprocess.TimeoutExpired as exc:
+            return {
+                "command": test_cmd,
+                "returncode": 124,
+                "stdout": exc.stdout or "",
+                "stderr": f"Test command timed out after {timeout} seconds.",
             }
 
     def print_test_results(self, results: dict[str, Any]) -> bool:
@@ -397,9 +411,19 @@ class WorkflowEngine:
         return f"{run_cmd} {quoted}"
 
     def _run_git(self, args: list[str], project_path: str | Path) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            ["git", *args],
-            cwd=str(Path(project_path).expanduser().resolve()),
-            capture_output=True,
-            text=True,
-        )
+        cmd = ["git", *args]
+        try:
+            return subprocess.run(
+                cmd,
+                cwd=str(Path(project_path).expanduser().resolve()),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(
+                cmd,
+                124,
+                "",
+                "git command timed out after 30 seconds",
+            )
