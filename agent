@@ -1,0 +1,532 @@
+"""Orchestrator engine - executes multi-agent pipelines with inter-agent communication."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from rich.console import Console
+from rich.live import Live
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from ..config import get_agent_config
+from ..state import register_window
+from ..tmux_mgr import TmuxManager
+from .pipeline import Pipeline, PipelineStep, StepType
+
+console = Console()
+
+# State file for pipeline execution results
+PIPELINE_STATE_DIR = Path.home() / ".agentbox" / "pipelines"
+
+
+def _ensure_dir() -> None:
+    PIPELINE_STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_pipeline_run(run_id: str, data: dict[str, Any]) -> None:
+    _ensure_dir()
+    path = PIPELINE_STATE_DIR / f"{run_id}.json"
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+
+
+def _load_pipeline_run(run_id: str) -> dict[str, Any] | None:
+    path = PIPELINE_STATE_DIR / f"{run_id}.json"
+    if path.exists():
+        with open(path) as f:
+            return json.load(f)
+    return None
+
+
+class StepStatus:
+    """Status of a pipeline step execution."""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class Orchestrator:
+    """Executes multi-agent pipelines, passing outputs between steps.
+
+    The orchestrator:
+    1. Creates a tmux session for the pipeline
+    2. Runs each step sequentially (or in parallel)
+    3. Captures output from each agent's tmux window
+    4. Feeds previous outputs as context into subsequent step prompts
+    5. Tracks pipeline state to disk for recovery/inspection
+    """
+
+    def __init__(self, config: dict[str, Any]):
+        self.config = config
+        self.tmux_mgr = TmuxManager(config)
+
+    def execute(
+        self,
+        pipeline: Pipeline,
+        project_path: str | None = None,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Execute a pipeline and return results.
+
+        Args:
+            pipeline: The Pipeline to execute
+            project_path: Working directory for agents
+            run_id: Optional run ID (auto-generated if not provided)
+
+        Returns:
+            Dict with step outputs, status, and run metadata
+        """
+        if not project_path:
+            project_path = os.getcwd()
+
+        if not run_id:
+            run_id = f"{pipeline.name}-{int(time.time())}"
+
+        project_name = Path(project_path).name
+        session_name = self.tmux_mgr.create_session(
+            f"{project_name}-pipe", project_path
+        )
+        if not session_name:
+            return {"status": "failed", "error": "Could not create tmux session"}
+
+        # Initialize context with shared variables
+        context: dict[str, Any] = dict(pipeline.shared_context)
+        step_results: dict[str, dict[str, Any]] = {}
+        overall_status = "running"
+
+        # Save initial state
+        run_data = {
+            "run_id": run_id,
+            "pipeline_name": pipeline.name,
+            "pipeline_desc": pipeline.description,
+            "session_name": session_name,
+            "project_path": project_path,
+            "started_at": datetime.now().isoformat(),
+            "status": "running",
+            "steps": {},
+            "context_keys": list(context.keys()),
+        }
+        _save_pipeline_run(run_id, run_data)
+
+        # Display pipeline info
+        console.print(Panel(
+            f"[bold green]🚀 Pipeline: {pipeline.name}[/bold green]\n\n"
+            f"{pipeline.description}\n\n"
+            f"Steps: {len(pipeline.steps)}\n"
+            f"Session: [cyan]{session_name}[/cyan]\n"
+            f"Run ID: [dim]{run_id}[/dim]",
+            title="🧠 Orchestrator",
+            border_style="green",
+        ))
+
+        # Execute steps
+        parallel_group: list[PipelineStep] = []
+
+        for i, step in enumerate(pipeline.steps):
+            if step.step_type == StepType.PARALLEL and i > 0:
+                # Add to parallel group
+                parallel_group.append(step)
+                # If this is the last step or next step is sequential, execute the group
+                is_last = i == len(pipeline.steps) - 1
+                next_sequential = (
+                    not is_last and pipeline.steps[i + 1].step_type == StepType.SEQUENTIAL
+                )
+                if is_last or next_sequential:
+                    results = self._execute_parallel_group(
+                        parallel_group, session_name, project_path, context, run_id
+                    )
+                    context.update(results)
+                    step_results.update({k: {"status": "completed", "output": v} for k, v in results.items()})
+                    parallel_group = []
+            else:
+                # Execute any pending parallel group first
+                if parallel_group:
+                    results = self._execute_parallel_group(
+                        parallel_group, session_name, project_path, context, run_id
+                    )
+                    context.update(results)
+                    step_results.update({k: {"status": "completed", "output": v} for k, v in results.items()})
+                    parallel_group = []
+
+                # Execute sequential step
+                result = self._execute_step(
+                    step, session_name, project_path, context, run_id, i
+                )
+                if result["status"] == "completed":
+                    context[step.step_id] = result["output"]
+                    step_results[step.step_id] = result
+                else:
+                    step_results[step.step_id] = result
+                    console.print(f"[red]✗ Step '{step.step_id}' failed: {result.get('error', 'unknown')}[/red]")
+                    # Continue with remaining steps if possible
+
+            # Update run state
+            run_data["steps"] = step_results
+            run_data["context_keys"] = list(context.keys())
+            _save_pipeline_run(run_id, run_data)
+
+        overall_status = "completed"
+        run_data["status"] = overall_status
+        run_data["completed_at"] = datetime.now().isoformat()
+        _save_pipeline_run(run_id, run_data)
+
+        # Print summary
+        self._print_summary(run_id, step_results, session_name)
+
+        return {
+            "run_id": run_id,
+            "status": overall_status,
+            "session_name": session_name,
+            "steps": step_results,
+            "context": {k: v for k, v in context.items() if k != "original_prompt"},
+        }
+
+    def _execute_step(
+        self,
+        step: PipelineStep,
+        session_name: str,
+        project_path: str,
+        context: dict[str, Any],
+        run_id: str,
+        step_index: int,
+    ) -> dict[str, Any]:
+        """Execute a single pipeline step."""
+        # Resolve prompt with context from previous steps
+        resolved_prompt = self._resolve_step_prompt(step, context)
+
+        console.print(Panel(
+            f"[bold]Step {step_index + 1}: {step.role}[/bold] → [cyan]{step.agent}[/cyan]\n\n"
+            f"Prompt preview: [dim]{resolved_prompt[:200]}...[/dim]",
+            title=f"▶ {step.step_id}",
+            border_style="yellow",
+        ))
+
+        # Launch the agent in tmux
+        window_label = f"{step.role}-{step.agent}"
+        agent_config = get_agent_config(self.config, step.agent)
+
+        if not agent_config:
+            return {"status": "failed", "error": f"Unknown agent: {step.agent}"}
+
+        # Build command
+        cmd = self._build_agent_command(step.agent, agent_config, resolved_prompt)
+
+        # Add window to tmux session
+        window_name = self.tmux_mgr.add_agent_window(
+            session_name, window_label, cmd, project_path
+        )
+
+        if not window_name:
+            return {"status": "failed", "error": "Could not create tmux window"}
+
+        # Register in state
+        register_window(
+            session_name=session_name,
+            window_name=window_name,
+            agent_id=step.agent,
+            role=step.role,
+            project_path=project_path,
+            project_name=Path(project_path).name,
+            prompt=resolved_prompt[:200],
+        )
+
+        # Wait for agent to produce output
+        console.print(f"[dim]⏳ Waiting for {step.agent} ({step.role}) to complete...[/dim]")
+        output = self._wait_for_output(
+            session_name, window_name, step.timeout
+        )
+
+        if output:
+            console.print(f"[green]✓ Step '{step.step_id}' completed[/green] ({len(output)} chars)")
+            return {"status": "completed", "output": output, "window": window_name}
+        else:
+            console.print(f"[yellow]⚠ Step '{step.step_id}' timed out or produced no output[/yellow]")
+            # Capture whatever output we have
+            raw_output = self.tmux_mgr.capture_pane(session_name, window_name, lines=200)
+            # Filter out the command echo and empty lines
+            filtered = self._filter_output(raw_output, step.agent)
+            return {
+                "status": "completed" if filtered else "failed",
+                "output": filtered or "(no output captured)",
+                "window": window_name,
+                "timed_out": not filtered,
+            }
+
+    def _execute_parallel_group(
+        self,
+        steps: list[PipelineStep],
+        session_name: str,
+        project_path: str,
+        context: dict[str, Any],
+        run_id: str,
+    ) -> dict[str, str]:
+        """Execute a group of steps in parallel. Returns {step_id: output}."""
+        console.print(f"[bold cyan]⚡ Running {len(steps)} steps in parallel[/bold cyan]")
+
+        # Launch all agents
+        window_map: dict[str, str] = {}  # step_id → window_name
+        for step in steps:
+            resolved_prompt = self._resolve_step_prompt(step, context)
+            agent_config = get_agent_config(self.config, step.agent)
+            if not agent_config:
+                console.print(f"[red]Unknown agent: {step.agent}, skipping[/red]")
+                continue
+
+            window_label = f"{step.role}-{step.agent}"
+            cmd = self._build_agent_command(step.agent, agent_config, resolved_prompt)
+            window_name = self.tmux_mgr.add_agent_window(
+                session_name, window_label, cmd, project_path
+            )
+
+            if window_name:
+                window_map[step.step_id] = window_name
+                register_window(
+                    session_name=session_name,
+                    window_name=window_name,
+                    agent_id=step.agent,
+                    role=step.role,
+                    project_path=project_path,
+                    project_name=Path(project_path).name,
+                    prompt=resolved_prompt[:200],
+                )
+
+        # Wait for all to complete
+        max_timeout = max(s.timeout for s in steps)
+        console.print(f"[dim]⏳ Waiting for parallel steps (max {max_timeout}s)...[/dim]")
+        time.sleep(min(5, max_timeout))  # Initial wait
+
+        results: dict[str, str] = {}
+        for step in steps:
+            if step.step_id in window_map:
+                window_name = window_map[step.step_id]
+                output = self._wait_for_output(
+                    session_name, window_name, min(step.timeout, max_timeout)
+                )
+                if not output:
+                    raw = self.tmux_mgr.capture_pane(session_name, window_name, lines=200)
+                    output = self._filter_output(raw, step.agent) or "(no output)"
+                results[step.step_id] = output
+                console.print(f"[green]✓ Parallel step '{step.step_id}' done[/green]")
+
+        return results
+
+    def _resolve_step_prompt(self, step: PipelineStep, context: dict[str, Any]) -> str:
+        """Resolve a step's prompt template with context."""
+        if not step.prompt:
+            return context.get("original_prompt", "")
+
+        return pipeline.resolve_prompt(step, context) if hasattr(pipeline, 'resolve_prompt') else step.prompt
+
+        # Use Pipeline's resolve_prompt
+        temp_pipeline = Pipeline(name="temp")
+        return temp_pipeline.resolve_prompt(step, context)
+
+    def _build_agent_command(self, agent_id: str, agent_config: dict[str, Any], prompt: str) -> str:
+        """Build the shell command to run an agent with a prompt."""
+        run_cmd = agent_config.get("run_cmd", agent_id)
+
+        # Escape prompt for shell
+        escaped_prompt = prompt.replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+
+        if agent_id == "claude":
+            return f'{run_cmd} -p "{escaped_prompt}"'
+        elif agent_id == "codex":
+            return f'{run_cmd} "{escaped_prompt}"'
+        elif agent_id == "aider":
+            return f'{run_cmd} --message "{escaped_prompt}"'
+        else:
+            return f'{run_cmd} "{escaped_prompt}"'
+
+    def _wait_for_output(
+        self,
+        session_name: str,
+        window_name: str,
+        timeout: int = 300,
+        poll_interval: int = 5,
+    ) -> str | None:
+        """Wait for an agent to produce output in a tmux window.
+
+        Uses heuristics to detect when an agent has finished:
+        - Checks if the shell prompt has returned (agent process exited)
+        - Monitors for output changes (agent has produced text)
+        """
+        start_time = time.time()
+        last_output_len = 0
+        stable_count = 0
+
+        while time.time() - start_time < timeout:
+            time.sleep(poll_interval)
+
+            raw_output = self.tmux_mgr.capture_pane(session_name, window_name, lines=200)
+            filtered = self._filter_output(raw_output, "")
+
+            if not filtered:
+                continue
+
+            current_len = len(filtered)
+
+            # Check if output is growing
+            if current_len > last_output_len:
+                last_output_len = current_len
+                stable_count = 0
+                continue
+
+            # Output is stable (not growing)
+            stable_count += 1
+
+            # If output has been stable for 3 polls (15s with 5s interval), assume done
+            if stable_count >= 3 and current_len > 50:
+                return filtered
+
+            # Check if shell prompt is back (agent process exited)
+            if self._detect_prompt_return(raw_output):
+                return filtered
+
+        return None  # Timed out
+
+    def _filter_output(self, raw_output: str, agent_id: str) -> str:
+        """Filter tmux output to extract agent response.
+
+        Removes:
+        - Shell command echo
+        - ANSI escape sequences
+        - Empty trailing lines
+        """
+        if not raw_output:
+            return ""
+
+        # Remove ANSI escape sequences
+        ansi_pattern = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?m')
+        cleaned = ansi_pattern.sub('', raw_output)
+
+        # Split into lines and remove empty trailing lines
+        lines = cleaned.split('\n')
+
+        # Remove leading empty lines and command echo
+        start = 0
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped and not stripped.startswith('$') and not stripped.startswith('❯'):
+                start = i
+                break
+
+        # Remove trailing empty lines
+        end = len(lines)
+        while end > start and not lines[end - 1].strip():
+            end -= 1
+
+        result = '\n'.join(lines[start:end]).strip()
+
+        # Remove common shell prompts at the end
+        prompt_patterns = [r'\$\s*$', r'❯\s*$', r'>\s*$']
+        for pattern in prompt_patterns:
+            result = re.sub(pattern, '', result).strip()
+
+        return result
+
+    def _detect_prompt_return(self, output: str) -> bool:
+        """Detect if the shell prompt has returned, indicating the agent process exited."""
+        if not output:
+            return False
+
+        last_lines = output.strip().split('\n')[-3:]
+        for line in last_lines:
+            stripped = line.strip()
+            if stripped in ('$', '❯', '#') or stripped.endswith('$') or stripped.endswith('❯'):
+                return True
+        return False
+
+    def _print_summary(
+        self,
+        run_id: str,
+        step_results: dict[str, dict[str, Any]],
+        session_name: str,
+    ) -> None:
+        """Print a pipeline execution summary."""
+        table = Table(title=f"🏁 Pipeline Results: {run_id}")
+        table.add_column("Step", style="cyan")
+        table.add_column("Agent", style="green")
+        table.add_column("Status", style="bold")
+        table.add_column("Output Length", style="dim")
+        table.add_column("Window", style="magenta")
+
+        for step_id, result in step_results.items():
+            status = result.get("status", "unknown")
+            status_icon = "✅" if status == "completed" else "❌"
+            output_len = f"{len(result.get('output', ''))} chars"
+            window = result.get("window", "-")
+
+            table.add_row(
+                step_id,
+                status_icon,
+                status,
+                output_len,
+                window,
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]Pipeline state saved: ~/.agentbox/pipelines/{run_id}.json[/dim]")
+        console.print(f"[dim]Session: {session_name} (use 'agentbox session attach {session_name}' to view)[/dim]")
+
+    @staticmethod
+    def list_pipeline_runs() -> list[dict[str, Any]]:
+        """List all pipeline run records."""
+        _ensure_dir()
+        runs = []
+        for path in sorted(PIPELINE_STATE_DIR.glob("*.json"), reverse=True):
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                runs.append({
+                    "run_id": data.get("run_id", path.stem),
+                    "pipeline": data.get("pipeline_name", "?"),
+                    "status": data.get("status", "?"),
+                    "started_at": data.get("started_at", "?"),
+                    "completed_at": data.get("completed_at", ""),
+                    "steps_count": len(data.get("steps", {})),
+                })
+            except (json.JSONDecodeError, OSError):
+                continue
+        return runs
+
+    @staticmethod
+    def get_pipeline_run(run_id: str) -> dict[str, Any] | None:
+        """Get details of a specific pipeline run."""
+        return _load_pipeline_run(run_id)
+
+    @staticmethod
+    def print_pipeline_runs() -> None:
+        """Print a table of pipeline runs."""
+        runs = Orchestrator.list_pipeline_runs()
+        if not runs:
+            console.print("[dim]No pipeline runs found.[/dim]")
+            return
+
+        table = Table(title="Pipeline Runs")
+        table.add_column("Run ID", style="cyan")
+        table.add_column("Pipeline", style="green")
+        table.add_column("Status", style="bold")
+        table.add_column("Steps", style="magenta")
+        table.add_column("Started", style="dim")
+
+        for run in runs:
+            status_icon = "✅" if run["status"] == "completed" else "⏳" if run["status"] == "running" else "❌"
+            table.add_row(
+                run["run_id"],
+                run["pipeline"],
+                f"{status_icon} {run['status']}",
+                str(run["steps_count"]),
+                run["started_at"][:19] if run["started_at"] != "?" else "?",
+            )
+
+        console.print(table)

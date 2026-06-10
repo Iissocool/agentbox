@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual env
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Agentbox runtime
+.agentbox/
+*.db
+
+# Config with secrets
+config/local.yaml
+
+# Generated
+agentbox/agentbox/workflow/_gen_core.py

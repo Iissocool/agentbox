@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentbox"
+version = "0.1.0"
+description = "AI Agent orchestration CLI - run multiple coding agents in Docker sandboxes via tmux"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "click>=8.0",
+    "docker>=6.0",
+]
+
+[project.scripts]
+agentbox = "agentbox.cli:main"
+ag = "agentbox.cli:main"
+agx = "agentbox.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agentbox*"]
