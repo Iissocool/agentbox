@@ -52,8 +52,10 @@ ag codex
 # 带 prompt 运行
 ag claude -p "帮我重构这个模块"
 
-# 在 Docker 沙盒中运行
-ag claude --sandbox
+# 默认在 Docker 沙盒中运行
+ag claude
+# 在本地运行（跳过沙盒）
+ag claude --local
 
 # 运行任意已配置的 agent
 ag run aider
@@ -68,8 +70,10 @@ ag team dev-team
 # 带 prompt
 ag team dev-team -p "实现用户注册功能"
 
-# 在沙盒中运行团队
-ag team dev-team --sandbox
+# 默认在沙盒中运行团队
+ag team dev-team
+# 在本地运行
+ag team dev-team --local
 ```
 
 ### 对比模式
@@ -88,7 +92,8 @@ ag compare claude codex aider -p "优化这个函数"
 ag ask "帮我写单元测试"
 ag ask "这个 bug 怎么修" -a codex
 ag ask "实现缓存层" --test
-ag ask "重构认证模块" --sandbox
+ag ask "重构认证模块"           # 默认沙盒
+ag ask "重构认证模块" --local   # 本地运行
 ```
 
 ### 工作流命令

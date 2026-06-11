@@ -179,7 +179,7 @@ class SandboxManager:
                 console.print("[dim]Fix: Docker Desktop → Preferences → Resources → File Sharing[/dim]")
                 console.print(f"[dim]Add the path: {project_path}[/dim]")
                 console.print("")
-                console.print("[dim]Alternatively, run without --sandbox to use local mode.[/dim]")
+                console.print("[dim]Alternatively, use --local to run locally without sandbox.[/dim]")
             else:
                 console.print(f"[red]Failed to create sandbox: {error_msg}[/red]")
             return {}
