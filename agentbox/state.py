@@ -129,3 +129,110 @@ def cleanup_stale_sessions(active_tmux_sessions: list[str]) -> int:
         save_state(state)
 
     return removed
+
+
+def recover_orphaned_sessions() -> int:
+    """Recover sessions that exist in tmux/Docker but not in state.
+
+    Scans for agentbox tmux sessions and Docker containers that have
+    no corresponding state entry, and recreates the state from labels.
+
+    Returns the number of recovered sessions.
+    """
+    import subprocess
+
+    state = load_state()
+    recovered = 0
+
+    # Find agentbox Docker containers
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a",
+             "--filter", "label=agentbox=true",
+             "--format", "{{.Names}}|{{.Labels}}|{{.Status}}"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            return 0
+    except FileNotFoundError:
+        return 0
+
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+
+        parts = line.split("|")
+        if len(parts) < 3:
+            continue
+
+        container_name = parts[0]
+        labels_str = parts[1] if len(parts) > 1 else ""
+        status = parts[2] if len(parts) > 2 else ""
+
+        # Parse labels to get agent info and project path
+        agent_id = ""
+        project_path = ""
+        for label in labels_str.split(","):
+            if label.startswith("agentbox.agent="):
+                agent_id = label.split("=", 1)[1]
+            elif label.startswith("desktop.docker.io/binds/0/Source="):
+                project_path = label.split("=", 1)[1]
+
+        if not agent_id:
+            continue
+
+        # Derive session name from container name
+        # Container format: agentbox-{agent_id}-{project_name}
+        # Session format: ag-{project_name}
+        # Strip "agentbox-" prefix, then strip "{agent_id}-" to get project_name
+        name_without_prefix = container_name.replace("agentbox-", "", 1)
+        if name_without_prefix.startswith(f"{agent_id}-"):
+            project_name = name_without_prefix[len(agent_id) + 1:]
+        else:
+            project_name = name_without_prefix
+
+        session_name = f"ag-{project_name}"
+
+        # Check if this session already tracked
+        if session_name in state["sessions"]:
+            # Check if this window already tracked
+            window_name = f"sb-{agent_id}"
+            if window_name in state["sessions"][session_name].get("windows", {}):
+                continue
+            # Add missing window
+            state["sessions"][session_name]["windows"][window_name] = {
+                "agent": agent_id,
+                "role": agent_id,
+                "project_path": "",
+                "sandbox": True,
+                "prompt": "",
+                "started_at": datetime.now().isoformat(),
+                "container": container_name,
+            }
+            recovered += 1
+            continue
+
+        # Create new session entry
+        state["sessions"][session_name] = {
+            "created_at": datetime.now().isoformat(),
+            "project_name": project_name,
+            "project_path": project_path,
+            "windows": {
+                f"sb-{agent_id}": {
+                    "agent": agent_id,
+                    "role": agent_id,
+                    "project_path": project_path,
+                    "sandbox": True,
+                    "prompt": "",
+                    "started_at": datetime.now().isoformat(),
+                    "container": container_name,
+                }
+            },
+        }
+        recovered += 1
+
+    if recovered > 0:
+        save_state(state)
+        console.print(f"[green]♻️ Recovered {recovered} orphaned session(s) from Docker[/green]")
+
+    return recovered

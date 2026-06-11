@@ -24,7 +24,7 @@ from .config import (
 from .sandbox import SandboxManager
 from .orchestrator import Orchestrator, Pipeline, PipelineStep
 from .orchestrator.pipeline import StepType, dev_pipeline, research_pipeline, compare_pipeline
-from .state import cleanup_stale_sessions, get_session_info, list_all_sessions, unregister_session
+from .state import cleanup_stale_sessions, get_session_info, list_all_sessions, recover_orphaned_sessions, unregister_session
 from .tmux_mgr import TmuxManager
 from .workflow import WorkflowEngine
 
@@ -323,7 +323,8 @@ def status(ctx: click.Context) -> None:
     tmux_mgr = TmuxManager(config)
     sandbox_mgr = SandboxManager(config)
 
-    # Cleanup stale sessions
+    # Recover orphaned sessions first, then cleanup stale ones
+    recovered = recover_orphaned_sessions()
     active_sessions = tmux_mgr.list_sessions()
     active_names = [s["name"] for s in active_sessions]
     cleaned = cleanup_stale_sessions(active_names)
@@ -439,6 +440,9 @@ def history(ctx: click.Context, limit: int) -> None:
     """📜 View session history and reconnect."""
     if ctx.invoked_subcommand is not None:
         return
+
+    # Recover orphaned sessions before showing history
+    recover_orphaned_sessions()
 
     from .state import load_state
 
