@@ -63,6 +63,42 @@ class SandboxManager:
         except subprocess.CalledProcessError as e:
             console.print(f"[red]Failed to create network: {e}[/red]")
 
+    def _container_exists(self, container_name: str) -> bool:
+        """Check if a container exists (running or stopped)."""
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "--format", "{{.State.Status}}", container_name],
+                capture_output=True, text=True,
+            )
+            return result.returncode == 0
+        except FileNotFoundError:
+            return False
+
+    def _container_is_running(self, container_name: str) -> bool:
+        """Check if a container is currently running."""
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "--format", "{{.State.Running}}", container_name],
+                capture_output=True, text=True,
+            )
+            return result.returncode == 0 and "true" in result.stdout.lower()
+        except FileNotFoundError:
+            return False
+
+    def _commit_container_as_image(self, container_name: str, image_name: str) -> bool:
+        """Save a container's state as a Docker image for reuse."""
+        try:
+            result = subprocess.run(
+                ["docker", "commit", container_name, image_name],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                console.print(f"[dim]💾 Saved image cache: {image_name}[/dim]")
+                return True
+            return False
+        except FileNotFoundError:
+            return False
+
     def create_sandbox(
         self,
         name: str,
@@ -71,7 +107,13 @@ class SandboxManager:
         image: str | None = None,
         env_vars: dict[str, str] | None = None,
     ) -> dict[str, str]:
-        """Create a new sandbox container for an agent.
+        """Create or reuse a sandbox container for an agent.
+
+        Strategy (avoids re-installing agents every time):
+        1. If a running container with the same name exists → reuse it directly
+        2. If a stopped container exists → restart it
+        3. If the agent-specific Docker image exists → create from it (fast)
+        4. Otherwise → create from base image, install agent, then docker commit
 
         Returns dict with container_id, name, status, needs_install.
         """
@@ -88,7 +130,41 @@ class SandboxManager:
         memory_limit = self.sandbox_config.get("memory_limit", "4g")
         cpu_limit = self.sandbox_config.get("cpu_limit", 2)
 
-        # Check if the agent-specific image exists, fall back to base image
+        container_name = f"agentbox-{name}"
+
+        # ── Strategy 1: Reuse running container ──
+        if self._container_is_running(container_name):
+            container_id = self._get_container_id(container_name)
+            console.print(f"[green]✓ Reusing running sandbox:[/green] {container_name} ({container_id})")
+            return {
+                "container_id": container_id,
+                "name": container_name,
+                "image": docker_image,
+                "status": "running",
+                "needs_install": False,
+            }
+
+        # ── Strategy 2: Restart stopped container ──
+        if self._container_exists(container_name):
+            try:
+                subprocess.run(["docker", "start", container_name],
+                              capture_output=True, check=True)
+                container_id = self._get_container_id(container_name)
+                console.print(f"[green]✓ Restarted sandbox:[/green] {container_name} ({container_id})")
+                return {
+                    "container_id": container_id,
+                    "name": container_name,
+                    "image": docker_image,
+                    "status": "running",
+                    "needs_install": False,
+                }
+            except subprocess.CalledProcessError:
+                # Container is broken, remove and recreate
+                console.print(f"[yellow]⚠ Failed to restart, recreating...[/yellow]")
+                subprocess.run(["docker", "rm", "-f", container_name],
+                              capture_output=True, check=False)
+
+        # ── Strategy 3 & 4: Create new container ──
         needs_install = False
         if not self._image_exists(docker_image):
             fallback_image = self.sandbox_config.get("base_image", "ubuntu:22.04")
@@ -99,18 +175,8 @@ class SandboxManager:
                 docker_image = fallback_image
                 needs_install = True
             else:
-                # Even the base image doesn't exist - try to pull it
                 console.print(f"[yellow]⚠ Base image '{docker_image}' not found locally, pulling...[/yellow]")
                 self._pull_image(docker_image)
-
-        container_name = f"agentbox-{name}"
-
-        # Remove existing container with same name if any
-        try:
-            subprocess.run(["docker", "rm", "-f", container_name],
-                          capture_output=True, check=False)
-        except Exception:
-            pass
 
         # Build docker run command
         cmd = [
@@ -138,8 +204,6 @@ class SandboxManager:
                 cmd.extend(["-e", f"{var_name}={val}"])
 
         cmd.append(docker_image)
-
-        # Keep container alive
         cmd.extend(["tail", "-f", "/dev/null"])
 
         try:
@@ -164,6 +228,10 @@ class SandboxManager:
                     self.exec_in_sandbox(name, ["bash", "-c", install_cmd])
                     console.print(f"[green]✓ {agent_id} installed in sandbox[/green]")
 
+                    # Save the installed state as a cached image for next time
+                    target_image = agent_config.get("docker_image", f"agentbox-{agent_id}:latest")
+                    self._commit_container_as_image(container_name, target_image)
+
             return {
                 "container_id": container_id,
                 "name": container_name,
@@ -178,11 +246,22 @@ class SandboxManager:
                 console.print(f"[yellow]The path {project_path} is not shared with Docker.[/yellow]")
                 console.print("[dim]Fix: Docker Desktop → Preferences → Resources → File Sharing[/dim]")
                 console.print(f"[dim]Add the path: {project_path}[/dim]")
-                console.print("")
-                console.print("[dim]Alternatively, use --local to run locally without sandbox.[/dim]")
             else:
                 console.print(f"[red]Failed to create sandbox: {error_msg}[/red]")
             return {}
+
+    def _get_container_id(self, container_name: str) -> str:
+        """Get short container ID from container name."""
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "--format", "{{.Id}}", container_name],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()[:12]
+        except FileNotFoundError:
+            pass
+        return "unknown"
 
     def _pull_image(self, image_name: str) -> bool:
         """Pull a Docker image from registry."""
