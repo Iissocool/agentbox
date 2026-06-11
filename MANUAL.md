@@ -1,6 +1,6 @@
 # Agentbox 使用手册
 
-> 版本: 0.1.0 | 最后更新: 2026-06-11
+> 版本: 0.2.0 | 最后更新: 2026-06-11
 
 ## 目录
 
@@ -9,6 +9,7 @@
 - [架构概览](#架构概览)
 - [快速开始](#快速开始)
 - [命令详解](#命令详解)
+  - [交互式选择](#交互式选择)
   - [Agent 命令](#agent-命令)
   - [工作流命令](#工作流命令)
   - [编排命令](#编排命令)
@@ -16,11 +17,13 @@
   - [Sandbox 命令](#sandbox-命令)
   - [Stack 命令](#stack-命令)
   - [Session 命令](#session-命令)
+  - [历史与重连](#历史与重连)
   - [配置命令](#配置命令)
   - [其他命令](#其他命令)
 - [配置文件](#配置文件)
 - [AGENTS.md 项目说明](#agentsmd-项目说明)
 - [安全机制](#安全机制)
+- [沙盒镜像缓存](#沙盒镜像缓存)
 - [典型使用场景](#典型使用场景)
 
 ---
@@ -94,11 +97,26 @@ ag review
 
 ## 命令详解
 
+### 交互式选择
+
+直接运行 `ag`（不带任何参数）会进入交互式 Agent 选择器：
+
+```bash
+ag
+# 显示可用 Agent 列表，输入编号即可选择
+```
+
+**选择器显示：**
+- 📦 本地已安装的 Agent（优先显示，附带路径）
+- ☁️ 未安装但可用的 Agent（可在沙盒中使用）
+
+选择后输入 prompt 即可启动。
+
 ### Agent 命令
 
 #### `ag claude` / `ag codex` / `ag aider` / `ag goose` / `ag opencode`
 
-启动指定的 AI Agent。
+启动指定的 AI Agent（在 Docker 沙盒中运行）。
 
 ```bash
 # 直接启动（交互模式）
@@ -112,12 +130,6 @@ ag codex -p "修复 issue #42 的 bug"
 ag codex -r planner
 ag claude -r coder
 
-# 在 Docker 沙盒中运行（默认）
-ag claude
-
-# 在本地运行（跳过沙盒）
-ag claude --local
-
 # 后台运行（不附加到 tmux）
 ag codex --no-attach
 ```
@@ -127,7 +139,6 @@ ag codex --no-attach
 |------|------|
 | `-p, --prompt` | 发送给 Agent 的提示词 |
 | `-r, --role` | 角色标签（如 planner、coder、reviewer） |
-| `--local` | 在本地运行（默认使用 Docker 沙盒） |
 | `--no-attach` | 不自动附加到 tmux 会话 |
 
 #### `ag run`
@@ -154,7 +165,7 @@ ag ask "这个项目的主要功能是什么"
 # 指定 Agent 和角色
 ag ask "重构 auth 模块" -a codex -r coder
 
-# 在沙盒中运行（默认）+ 自动跑测试
+# 自动跑测试
 ag ask "帮我写单元测试" --test
 
 # 后台运行
@@ -166,7 +177,6 @@ ag ask "优化性能" --no-attach
 |------|------|
 | `-a, --agent` | 使用的 Agent（默认: claude） |
 | `-r, --role` | 角色标签 |
-| `--local` | 在本地运行（默认使用 Docker 沙盒） |
 | `--test` | 自动检测并运行测试命令，附加到 prompt 末尾 |
 | `--no-attach` | 不附加到 tmux |
 
@@ -245,8 +255,8 @@ ag test -c "pytest -v" # 指定测试命令
 # 规划 → 编码 → 审查
 ag compose codex:planner claude:coder codex:reviewer
 
-# 带 prompt 和本地运行
-ag compose claude:architect aider:test-writer -p "Build auth module" --local
+# 带 prompt
+ag compose claude:architect aider:test-writer -p "Build auth module"
 
 # 无角色时，agent ID 作为角色
 ag compose claude codex
@@ -440,6 +450,47 @@ tmux attach-session -t ag-myproject
 
 ---
 
+### 历史与重连
+
+管理会话历史记录，查看和重连之前的 Agent 会话。
+
+#### `ag history`
+
+查看所有历史会话记录。
+
+```bash
+ag history
+# 显示表格：会话名、Agent、角色、项目、时间、状态
+```
+
+#### `ag history delete <name>`
+
+删除指定的历史会话记录。
+
+```bash
+ag history delete ag-myproject
+# 如果会话仍在运行，会先确认是否 kill
+```
+
+#### `ag reconnect`
+
+交互式重连到活跃的会话。
+
+```bash
+ag reconnect
+# 显示活跃会话列表，选择后重连
+```
+
+#### `ag reconnect <name>`
+
+直接重连到指定会话。
+
+```bash
+ag reconnect ag-myproject
+```
+
+---
+
 ### 配置命令
 
 ```bash
@@ -539,7 +590,6 @@ sandbox:
   auto_remove: true
   memory_limit: 4g
   cpu_limit: 2
-  default_local: false      # 设为 true 则默认在本地运行（默认使用沙盒）
   compose_timeout: 120
 
 tmux:
@@ -708,7 +758,59 @@ teams:
 | Shell 注入防护 | 所有 prompt 通过 `shlex.quote()` 转义 |
 | Tmux 注入防护 | 使用 `tmux send-keys -l` 字面发送命令 |
 | 子进程超时 | Docker/Git/测试命令均有超时保护 |
-| 沙盒隔离 | 默认在 Docker 容器中运行，与宿主隔离（`--local` 跳过） |
+| 沙盒隔离 | 所有 Agent 在 Docker 容器中运行，与宿主完全隔离 |
+
+---
+
+## 沙盒镜像缓存
+
+Agentbox 采用 4 级缓存策略，避免每次运行都重新安装 Agent：
+
+| 优先级 | 策略 | 速度 | 说明 |
+|--------|------|------|------|
+| 1 | 复用运行中容器 | ⚡ 即时 | 同名容器正在运行，直接复用 |
+| 2 | 重启已停止容器 | ⚡ 秒级 | `docker start` 即可 |
+| 3 | 使用缓存镜像创建 | 🚀 秒级 | 首次安装后 `docker commit` 保存的镜像 |
+| 4 | 从基础镜像安装 | 🐢 分钟级 | 仅首次，安装后自动 commit 缓存 |
+
+### 工作原理
+
+```
+首次运行 ag claude:
+  ubuntu:22.04 → 创建容器 → 安装 claude → docker commit → agentbox-claude:latest
+  ⏱️ 约 1-2 分钟
+
+第二次运行 ag claude:
+  检测到 agentbox-claude:latest 镜像 → 直接用该镜像创建容器
+  ⏱️ 约 3-5 秒
+
+再次运行 ag claude（容器还在运行）:
+  检测到容器 agentbox-claude-myproject 已运行 → 直接复用
+  ⏱️ 即时
+```
+
+### 手动管理镜像
+
+```bash
+# 查看本地缓存的 Agent 镜像
+docker images | grep agentbox
+
+# 手动预构建某个 Agent 的镜像
+ag sandbox build claude
+
+# 删除缓存镜像（下次运行会重新安装）
+docker rmi agentbox-claude:latest
+
+# 清理所有未使用的镜像
+docker image prune
+```
+
+### 容器生命周期
+
+- Agent 运行时，容器保持运行状态
+- 容器停止后不会自动删除，可被 `ag history` 查看
+- 再次运行相同 Agent + 项目时，会自动重启已停止的容器
+- 使用 `ag sandbox kill` 显式删除容器
 
 ---
 
@@ -748,30 +850,27 @@ ag pipeline dev "Build a REST API with authentication"
 ag pipeline list   # 查看运行历史
 ```
 
-### 场景 5：Docker 沙盒运行（默认行为）
+### 场景 5：Docker 沙盒运行
 
 ```bash
-# 默认就在 Docker 沙盒中运行
+# 所有 Agent 在 Docker 沙盒中运行（唯一模式）
 ag claude -p "帮我分析这段代码"
 # 在隔离的 Docker 容器中运行，项目目录挂载到 /workspace
 ag sandbox list    # 查看运行中的沙盒
 ag sandbox logs agentbox-myproject-claude
 ```
 
-### 场景 5b：临时在本地运行
+### 场景 5b：会话历史与重连
 
 ```bash
-# 使用 --local 跳过沙盒，直接在本地运行
-ag claude --local -p "帮我分析这段代码"
+# 查看所有历史会话
+ag history
 
-# 也可以配置默认本地运行
-ag config edit
-# 在 ~/.agentbox/config.yaml 中设置：
-#   sandbox:
-#     default_local: true
+# 重连到之前的会话
+ag reconnect ag-myproject
 
-# 之后所有 Agent 命令默认在本地运行
-ag claude -p "帮我分析这段代码"
+# 删除不需要的历史记录
+ag history delete ag-oldproject
 ```
 
 ### 场景 6：Docker Compose 多容器栈
@@ -814,6 +913,9 @@ ag stack down      # 停止
 | `ag stack down` | 停止 Compose 栈 |
 | `ag session list` | 列出 tmux 会话 |
 | `ag status` | 📊 仪表盘：查看所有会话/沙盒/Agent |
+| `ag history` | 查看会话历史记录 |
+| `ag history delete` | 删除历史记录 |
+| `ag reconnect` | 重连到活跃会话 |
 | `ag config show` | 查看配置 |
 | `ag init` | 初始化项目 |
 | `ag list` | 列出可用 Agent |
