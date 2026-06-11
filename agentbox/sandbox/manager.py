@@ -135,6 +135,31 @@ class SandboxManager:
         # ── Strategy 1: Reuse running container ──
         if self._container_is_running(container_name):
             container_id = self._get_container_id(container_name)
+
+            # Check if agent binary exists in container
+            run_cmd = agent_config.get("run_cmd", agent_id)
+            check_result = subprocess.run(
+                ["docker", "exec", container_name, "which", run_cmd.split()[0]],
+                capture_output=True, text=True,
+            )
+            if check_result.returncode != 0:
+                # Agent not installed, install it now
+                console.print(f"[yellow]⚠ Agent '{agent_id}' not found in running container, installing...[/yellow]")
+                install_cmd = agent_config.get("install_cmd", "")
+                if install_cmd:
+                    console.print(f"[dim]Installing {agent_id} inside sandbox...[/dim]")
+                    self.exec_in_sandbox(name, ["bash", "-c",
+                        "apt-get update && apt-get install -y curl git build-essential 2>/dev/null || true"])
+                    if "npm" in install_cmd:
+                        self.exec_in_sandbox(name, ["bash", "-c",
+                            "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null && "
+                            "apt-get install -y nodejs 2>/dev/null || true"])
+                    self.exec_in_sandbox(name, ["bash", "-c", install_cmd])
+                    console.print(f"[green]✓ {agent_id} installed in sandbox[/green]")
+                    # Cache the image
+                    target_image = agent_config.get("docker_image", f"agentbox-{agent_id}:latest")
+                    self._commit_container_as_image(container_name, target_image)
+
             console.print(f"[green]✓ Reusing running sandbox:[/green] {container_name} ({container_id})")
             return {
                 "container_id": container_id,
@@ -150,6 +175,30 @@ class SandboxManager:
                 subprocess.run(["docker", "start", container_name],
                               capture_output=True, check=True)
                 container_id = self._get_container_id(container_name)
+
+                # Check if agent binary exists in container
+                run_cmd = agent_config.get("run_cmd", agent_id)
+                check_result = subprocess.run(
+                    ["docker", "exec", container_name, "which", run_cmd.split()[0]],
+                    capture_output=True, text=True,
+                )
+                if check_result.returncode != 0:
+                    # Agent not installed, install it now
+                    console.print(f"[yellow]⚠ Agent '{agent_id}' not found in restarted container, installing...[/yellow]")
+                    install_cmd = agent_config.get("install_cmd", "")
+                    if install_cmd:
+                        console.print(f"[dim]Installing {agent_id} inside sandbox...[/dim]")
+                        self.exec_in_sandbox(name, ["bash", "-c",
+                            "apt-get update && apt-get install -y curl git build-essential 2>/dev/null || true"])
+                        if "npm" in install_cmd:
+                            self.exec_in_sandbox(name, ["bash", "-c",
+                                "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null && "
+                                "apt-get install -y nodejs 2>/dev/null || true"])
+                        self.exec_in_sandbox(name, ["bash", "-c", install_cmd])
+                        console.print(f"[green]✓ {agent_id} installed in sandbox[/green]")
+                        target_image = agent_config.get("docker_image", f"agentbox-{agent_id}:latest")
+                        self._commit_container_as_image(container_name, target_image)
+
                 console.print(f"[green]✓ Restarted sandbox:[/green] {container_name} ({container_id})")
                 return {
                     "container_id": container_id,
