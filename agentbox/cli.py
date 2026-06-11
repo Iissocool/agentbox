@@ -1,4 +1,14 @@
-"""Agentbox CLI - main entry point."""
+"""Agentbox CLI - simplified single-entry command interface.
+
+All common operations are top-level commands under `ag`:
+  ag                Pick an agent interactively
+  ag claude         Run Claude in sandbox
+  ag status         Dashboard
+  ag attach         Reconnect to session
+  ag kill           Kill session + sandbox
+  ag logs           View sandbox logs
+  ag history        Session history
+"""
 
 import os
 from pathlib import Path
@@ -40,11 +50,7 @@ def _parse_agent_role(spec: str) -> dict[str, str]:
 
 
 def _interactive_agent_select(config: dict) -> str | None:
-    """Show interactive agent selector when no agent is specified.
-
-    Detects locally installed agents and lets user pick one.
-    Returns agent_id or None.
-    """
+    """Show interactive agent selector when no agent is specified."""
     local_agents = detect_local_agents()
     all_agents = config.get("agents", {})
 
@@ -53,23 +59,20 @@ def _interactive_agent_select(config: dict) -> str | None:
         console.print("[dim]Install an agent CLI first (claude, codex, aider, etc.)[/dim]")
         return None
 
-    # Build list: prioritize locally installed agents
     console.print("\n[bold]🧊 Select an agent to run in sandbox:[/bold]\n")
 
     items = []
-    # First show locally installed (can run in sandbox immediately)
     for a in local_agents:
         agent_config = all_agents.get(a["id"], {})
         name = agent_config.get("name", a["id"])
         items.append(a["id"])
         console.print(f"  [green]{len(items)}[/green]. 📦 {name} ([cyan]{a['id']}[/cyan]) — installed at {a['path']}")
 
-    # Then show agents that are configured but not locally installed
     for agent_id, agent_config in all_agents.items():
         if agent_id not in {a["id"] for a in local_agents}:
             items.append(agent_id)
             name = agent_config.get("name", agent_id)
-            console.print(f"  [green]{len(items)}[/green]. ☁️  {name} ([cyan]{agent_id}[/cyan]) — [dim]not installed locally, will install in sandbox[/dim]")
+            console.print(f"  [green]{len(items)}[/green]. ☁️  {name} ([cyan]{agent_id}[/cyan]) — [dim]will install in sandbox[/dim]")
 
     if not items:
         console.print("[red]No agents available.[/red]")
@@ -85,28 +88,30 @@ def _interactive_agent_select(config: dict) -> str | None:
         return None
 
 
+# ═══════════════════════════════════════════════════════════════════
+# Main group
+# ═══════════════════════════════════════════════════════════════════
+
 @click.group(invoke_without_command=True)
-@click.version_option(version=__version__, prog_name="agentbox")
+@click.version_option(version=__version__, prog_name="ag")
 @click.option("-p", "--project", "project_path", default=None, help="Project directory path")
 @click.pass_context
 def main(ctx: click.Context, project_path: str | None) -> None:
-    """🧊 Agentbox - AI Agent orchestration CLI
-
-    Run multiple coding agents in Docker sandboxes via tmux.
+    """🧊 Agentbox — AI Agent sandbox CLI
 
     \b
     Quick start:
-      agentbox              Interactive: pick an agent to run in sandbox
-      agentbox claude       Run Claude Code in sandbox
-      agentbox codex        Run OpenAI Codex in sandbox
-      agentbox status       Dashboard: view all sessions & sandboxes
-      agentbox history      View and reconnect to past sessions
+      ag              Pick an agent interactively
+      ag claude       Run Claude Code in sandbox
+      ag codex        Run OpenAI Codex in sandbox
+      ag status       Dashboard: view all sessions & sandboxes
+      ag attach       Reconnect to a session
+      ag kill         Kill a session and its sandbox
     """
     ctx.ensure_object(dict)
     ctx.obj["project_path"] = project_path or os.getcwd()
     ctx.obj["config"] = load_config()
 
-    # If no subcommand given, show interactive agent selector
     if ctx.invoked_subcommand is None:
         config = ctx.obj["config"]
         agent_id = _interactive_agent_select(config)
@@ -115,76 +120,354 @@ def main(ctx: click.Context, project_path: str | None) -> None:
             runner.run_agent(agent_id, ctx.obj["project_path"])
 
 
-# ─── Agent commands ──────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# Agent shortcuts — ag claude / ag codex / ag aider / ...
+# ═══════════════════════════════════════════════════════════════════
 
-@main.command(name="claude")
-@click.option("-p", "--prompt", default=None, help="Prompt to send to Claude")
-@click.option("-r", "--role", default=None, help="Role label (e.g., 'planner', 'coder')")
-@click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
-@click.pass_context
-def run_claude(ctx: click.Context, prompt: str | None, role: str | None, no_attach: bool) -> None:
-    """🤖 Run Claude Code in Docker sandbox."""
-    runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("claude", ctx.obj["project_path"], prompt, attach=not no_attach, role=role)
+def _make_agent_command(agent_id: str):
+    """Factory to create agent shortcut commands."""
+    @click.option("-p", "--prompt", default=None, help="Prompt to send")
+    @click.option("-r", "--role", default=None, help="Role label (e.g., 'planner', 'coder')")
+    @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
+    @click.pass_context
+    def agent_cmd(ctx: click.Context, prompt: str | None, role: str | None, no_attach: bool) -> None:
+        runner = AgentRunner(ctx.obj["config"])
+        runner.run_agent(agent_id, ctx.obj["project_path"], prompt, attach=not no_attach, role=role)
+    return agent_cmd
 
-
-@main.command(name="codex")
-@click.option("-p", "--prompt", default=None, help="Prompt to send to Codex")
-@click.option("-r", "--role", default=None, help="Role label (e.g., 'planner', 'coder')")
-@click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
-@click.pass_context
-def run_codex(ctx: click.Context, prompt: str | None, role: str | None, no_attach: bool) -> None:
-    """🤖 Run OpenAI Codex in Docker sandbox."""
-    runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("codex", ctx.obj["project_path"], prompt, attach=not no_attach, role=role)
-
-
-@main.command(name="aider")
-@click.option("-p", "--prompt", default=None, help="Prompt to send to Aider")
-@click.option("-r", "--role", default=None, help="Role label")
-@click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
-@click.pass_context
-def run_aider(ctx: click.Context, prompt: str | None, role: str | None, no_attach: bool) -> None:
-    """🤖 Run Aider in Docker sandbox."""
-    runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("aider", ctx.obj["project_path"], prompt, attach=not no_attach, role=role)
-
-
-@main.command(name="goose")
-@click.option("-p", "--prompt", default=None, help="Prompt to send to Goose")
-@click.option("-r", "--role", default=None, help="Role label")
-@click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
-@click.pass_context
-def run_goose(ctx: click.Context, prompt: str | None, role: str | None, no_attach: bool) -> None:
-    """🤖 Run Goose in Docker sandbox."""
-    runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("goose", ctx.obj["project_path"], prompt, attach=not no_attach, role=role)
-
-
-@main.command(name="opencode")
-@click.option("-p", "--prompt", default=None, help="Prompt to send to OpenCode")
-@click.option("-r", "--role", default=None, help="Role label")
-@click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
-@click.pass_context
-def run_opencode(ctx: click.Context, prompt: str | None, role: str | None, no_attach: bool) -> None:
-    """🤖 Run OpenCode in Docker sandbox."""
-    runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent("opencode", ctx.obj["project_path"], prompt, attach=not no_attach, role=role)
+# Register agent shortcut commands
+for _aid in ["claude", "codex", "aider", "goose", "opencode"]:
+    _cmd = _make_agent_command(_aid)
+    _cmd.__doc__ = f"🤖 Run {_aid.capitalize()} in Docker sandbox."
+    main.add_command(click.command(name=_aid)(_cmd))
 
 
 @main.command()
 @click.argument("agent_id")
 @click.option("-p", "--prompt", default=None, help="Prompt to send")
-@click.option("-r", "--role", default=None, help="Role label (e.g., 'planner', 'coder')")
+@click.option("-r", "--role", default=None, help="Role label")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
 def run(ctx: click.Context, agent_id: str, prompt: str | None, role: str | None, no_attach: bool) -> None:
-    """🚀 Run any configured agent by ID in Docker sandbox."""
+    """🚀 Run any configured agent by ID."""
     runner = AgentRunner(ctx.obj["config"])
     runner.run_agent(agent_id, ctx.obj["project_path"], prompt, attach=not no_attach, role=role)
 
 
-# ─── Compose command (dynamic agent:role composition) ────────────
+# ═══════════════════════════════════════════════════════════════════
+# Status dashboard — ag status
+# ═══════════════════════════════════════════════════════════════════
+
+@main.command()
+@click.pass_context
+def status(ctx: click.Context) -> None:
+    """📊 Dashboard: all sessions, sandboxes and agents."""
+    config = ctx.obj["config"]
+    tmux_mgr = TmuxManager(config)
+    sandbox_mgr = SandboxManager(config)
+
+    # Recover orphaned sessions first, then cleanup stale ones
+    recovered = recover_orphaned_sessions()
+    active_sessions = tmux_mgr.list_sessions()
+    active_names = [s["name"] for s in active_sessions]
+    cleaned = cleanup_stale_sessions(active_names)
+    if cleaned > 0:
+        console.print(f"[dim]Cleaned up {cleaned} stale session(s)[/dim]")
+
+    all_state = list_all_sessions()
+    sandboxes = sandbox_mgr.list_sandboxes()
+
+    # ── Summary panel ──
+    n_sessions = len(active_sessions)
+    n_sandboxes = len([sb for sb in sandboxes if "Up" in sb["status"]])
+    n_agents = sum(len(s.get("windows", {})) for s in all_state.values())
+
+    summary = (
+        f"Sessions:  [cyan]{n_sessions}[/cyan]   "
+        f"Sandboxes: [green]{n_sandboxes}[/green]   "
+        f"Agents:    [yellow]{n_agents}[/yellow]"
+    )
+    console.print(Panel(summary, title="🧊 Agentbox Dashboard", border_style="cyan"))
+
+    if not active_sessions and not sandboxes:
+        console.print("\n[dim]No active sessions or sandboxes.[/dim]")
+        console.print("[dim]Run [cyan]ag[/cyan] to pick an agent, or [cyan]ag claude[/cyan] to start.[/dim]")
+        return
+
+    # ── Sessions & Agents table ──
+    if active_sessions:
+        table = Table(title="🖥️  Sessions & Agents")
+        table.add_column("Session", style="cyan", width=18)
+        table.add_column("Project", style="green", width=15)
+        table.add_column("Agent", style="yellow", width=10)
+        table.add_column("Role", style="magenta", width=12)
+        table.add_column("Container", style="blue", width=25)
+        table.add_column("Status", style="bold", width=8)
+        table.add_column("Prompt", style="dim", max_width=30)
+
+        for s in active_sessions:
+            name = s["name"]
+            state = all_state.get(name, {})
+            project = state.get("project_name", "")
+            windows_state = state.get("windows", {})
+
+            if not windows_state:
+                table.add_row(name, project, "-", "-", "-", s["attached"], "")
+                continue
+
+            first = True
+            for wname, winfo in windows_state.items():
+                agent = winfo.get("agent", "-")
+                role = winfo.get("role", agent)
+                prompt_text = winfo.get("prompt", "")[:30]
+
+                container = "-"
+                for sb in sandboxes:
+                    if agent in sb["name"] and "Up" in sb["status"]:
+                        container = sb["name"]
+                        break
+
+                status_str = "🟢" if s["attached"] == "Yes" else "⚪"
+
+                if first:
+                    table.add_row(name, project, agent, role, container, status_str, prompt_text)
+                    first = False
+                else:
+                    table.add_row("", "", agent, role, container, status_str, prompt_text)
+
+        console.print(table)
+
+    # ── Docker Sandboxes table ──
+    if sandboxes:
+        sb_table = Table(title="🐳 Sandboxes")
+        sb_table.add_column("ID", style="dim", width=12)
+        sb_table.add_column("Name", style="cyan", width=30)
+        sb_table.add_column("Agent", style="yellow", width=10)
+        sb_table.add_column("Image", style="green", width=25)
+        sb_table.add_column("Status", style="bold")
+
+        for sb in sandboxes:
+            status_style = "green" if "Up" in sb["status"] else "red"
+            sb_table.add_row(
+                sb["container_id"], sb["name"], sb["agent"], sb["image"],
+                f"[{status_style}]{sb['status']}[/{status_style}]",
+            )
+
+        console.print(sb_table)
+
+    # ── Quick tips ──
+    console.print("\n[dim]💡 [cyan]ag attach[/cyan]  [cyan]ag kill[/cyan]  [cyan]ag logs[/cyan]  [cyan]ag history[/cyan][/dim]")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Attach — ag attach [session_name]
+# ═══════════════════════════════════════════════════════════════════
+
+@main.command()
+@click.argument("session_name", required=False)
+@click.pass_context
+def attach(ctx: click.Context, session_name: str | None) -> None:
+    """🔄 Attach to a tmux session."""
+    tmux_mgr = TmuxManager(ctx.obj["config"])
+
+    if session_name:
+        tmux_mgr.attach_session(session_name)
+        return
+
+    # No session name given — show picker
+    active_sessions = tmux_mgr.list_sessions()
+
+    if not active_sessions:
+        console.print("[dim]No active sessions. Run [cyan]ag[/cyan] to start one.[/dim]")
+        return
+
+    if len(active_sessions) == 1:
+        sname = active_sessions[0]["name"]
+        console.print(f"[dim]Only one active session: {sname}[/dim]")
+        tmux_mgr.attach_session(sname)
+        return
+
+    console.print("\n[bold]🔄 Active sessions — select one:[/bold]\n")
+    for i, s in enumerate(active_sessions, 1):
+        state = get_session_info(s["name"]) or {}
+        project = state.get("project_name", "")
+        windows = state.get("windows", {})
+        agents = ", ".join(winfo.get("agent", "?") for winfo in windows.values()) if windows else "-"
+        console.print(f"  [green]{i}[/green]. {s['name']}  project={project}  agents=[cyan]{agents}[/cyan]")
+
+    console.print()
+    choice = click.prompt("Select session", type=int, default=1)
+
+    if 1 <= choice <= len(active_sessions):
+        tmux_mgr.attach_session(active_sessions[choice - 1]["name"])
+    else:
+        console.print("[red]Invalid selection[/red]")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Kill — ag kill [session_name]   (kills session + sandbox)
+# ═══════════════════════════════════════════════════════════════════
+
+@main.command()
+@click.argument("session_name", required=False)
+@click.option("--all", "kill_all", is_flag=True, help="Kill all sessions and sandboxes")
+@click.pass_context
+def kill(ctx: click.Context, session_name: str | None, kill_all: bool) -> None:
+    """🔥 Kill a session and its sandbox."""
+    tmux_mgr = TmuxManager(ctx.obj["config"])
+    sandbox_mgr = SandboxManager(ctx.obj["config"])
+
+    if kill_all:
+        # Kill all sandboxes
+        sb_count = sandbox_mgr.kill_all_sandboxes()
+        # Kill all agentbox tmux sessions
+        active = tmux_mgr.list_sessions()
+        for s in active:
+            tmux_mgr.kill_session(s["name"])
+            unregister_session(s["name"])
+        console.print(f"[green]✓ Killed {len(active)} session(s) and {sb_count} sandbox(es)[/green]")
+        return
+
+    if not session_name:
+        # Show picker
+        active = tmux_mgr.list_sessions()
+        if not active:
+            console.print("[dim]No active sessions to kill.[/dim]")
+            return
+
+        console.print("\n[bold]🔥 Kill which session?[/bold]\n")
+        for i, s in enumerate(active, 1):
+            state = get_session_info(s["name"]) or {}
+            project = state.get("project_name", "")
+            console.print(f"  [red]{i}[/red]. {s['name']}  project={project}")
+
+        console.print()
+        choice = click.prompt("Select session to kill", type=int, default=0)
+        if 1 <= choice <= len(active):
+            session_name = active[choice - 1]["name"]
+        else:
+            return
+
+    # Kill the sandbox container matching this session
+    state = get_session_info(session_name) or {}
+    windows = state.get("windows", {})
+    for wname, winfo in windows.items():
+        agent = winfo.get("agent", "")
+        project_name = state.get("project_name", "")
+        if agent and project_name:
+            sandbox_name = f"{agent}-{project_name}"
+            sandbox_mgr.kill_sandbox(sandbox_name)
+
+    # Kill the tmux session
+    tmux_mgr.kill_session(session_name)
+    unregister_session(session_name)
+    console.print(f"[green]✓ Killed session: {session_name}[/green]")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Logs — ag logs [sandbox_name]
+# ═══════════════════════════════════════════════════════════════════
+
+@main.command()
+@click.argument("name", required=False)
+@click.option("--tail", default=50, help="Number of lines to show")
+@click.pass_context
+def logs(ctx: click.Context, name: str | None, tail: int) -> None:
+    """📜 View sandbox logs."""
+    sandbox_mgr = SandboxManager(ctx.obj["config"])
+
+    if not name:
+        # Show available sandboxes
+        sandboxes = sandbox_mgr.list_sandboxes()
+        if not sandboxes:
+            console.print("[dim]No sandboxes running.[/dim]")
+            return
+        console.print("[bold]📜 Which sandbox?[/bold]\n")
+        for i, sb in enumerate(sandboxes, 1):
+            console.print(f"  [green]{i}[/green]. {sb['name']}  agent={sb['agent']}  status={sb['status']}")
+        console.print()
+        choice = click.prompt("Select sandbox", type=int, default=1)
+        if 1 <= choice <= len(sandboxes):
+            name = sandboxes[choice - 1]["name"].replace("agentbox-", "", 1)
+        else:
+            return
+
+    output = sandbox_mgr.get_sandbox_logs(name, tail)
+    console.print(output)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# History — ag history
+# ═══════════════════════════════════════════════════════════════════
+
+@main.command()
+@click.option("--limit", "-n", default=20, help="Number of sessions to show")
+@click.pass_context
+def history(ctx: click.Context, limit: int) -> None:
+    """📜 View session history and reconnect."""
+    # Recover orphaned sessions before showing history
+    recover_orphaned_sessions()
+
+    from .state import load_state
+
+    state = load_state()
+    sessions = state.get("sessions", {})
+
+    if not sessions:
+        console.print("[dim]No session history yet. Run [cyan]ag[/cyan] to start your first session.[/dim]")
+        return
+
+    tmux_mgr = TmuxManager(ctx.obj["config"])
+    active_sessions = tmux_mgr.list_sessions()
+    active_names = {s["name"] for s in active_sessions}
+
+    table = Table(title="📜 Session History")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Session", style="cyan")
+    table.add_column("Project", style="green")
+    table.add_column("Agents", style="yellow", max_width=40)
+    table.add_column("Started", style="magenta", width=19)
+    table.add_column("Status", style="bold")
+
+    sorted_sessions = sorted(
+        sessions.items(),
+        key=lambda x: x[1].get("created_at", ""),
+        reverse=True,
+    )
+
+    for i, (sname, sstate) in enumerate(sorted_sessions[:limit], 1):
+        project = sstate.get("project_name", "")
+        created = sstate.get("created_at", "")[:19]
+
+        windows = sstate.get("windows", {})
+        if windows:
+            agent_parts = []
+            for wname, winfo in windows.items():
+                agent = winfo.get("agent", "?")
+                role = winfo.get("role", agent)
+                if role != agent:
+                    agent_parts.append(f"{agent}→{role}")
+                else:
+                    agent_parts.append(agent)
+            agents_str = ", ".join(agent_parts)
+        else:
+            agents_str = "-"
+
+        if sname in active_names:
+            status_str = "[green]🟢 active[/green]"
+        else:
+            status_str = "[dim]⚪ dead[/dim]"
+
+        table.add_row(str(i), sname, project, agents_str, created, status_str)
+
+    console.print(table)
+
+    console.print("\n[dim]💡 [cyan]ag attach[/cyan] to reconnect · [cyan]ag kill[/cyan] to remove[/dim]")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Compose — ag compose agent:role agent:role
+# ═══════════════════════════════════════════════════════════════════
 
 @main.command()
 @click.argument("specs", nargs=-1, required=True)
@@ -192,20 +475,16 @@ def run(ctx: click.Context, agent_id: str, prompt: str | None, role: str | None,
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
 def compose(ctx: click.Context, specs: tuple[str, ...], prompt: str | None, no_attach: bool) -> None:
-    """✨ Compose agents with roles dynamically.
+    """✨ Compose agents with roles.
 
     \b
-    Use AGENT:ROLE syntax to assign roles:
-      agentbox compose codex:planner claude:coder codex:reviewer
-      agentbox compose claude:architect aider:test-writer -p "Build auth module"
-
-    \b
-    Without a role, the agent ID is used as the role:
-      agentbox compose claude codex
+    Examples:
+      ag compose claude:coder codex:reviewer
+      ag compose claude:architect aider:test-writer -p "Build auth"
     """
     composition = [_parse_agent_role(spec) for spec in specs]
 
-    console.print(f"[dim]Composition:[/dim]")
+    console.print("[dim]Composition:[/dim]")
     for comp in composition:
         console.print(f"  [cyan]{comp['agent']}[/cyan] as [yellow]{comp['role']}[/yellow]")
 
@@ -213,7 +492,9 @@ def compose(ctx: click.Context, specs: tuple[str, ...], prompt: str | None, no_a
     runner.run_compose(composition, ctx.obj["project_path"], prompt, attach=not no_attach)
 
 
-# ─── Team commands ───────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# Team — ag team <team_id>
+# ═══════════════════════════════════════════════════════════════════
 
 @main.command()
 @click.argument("team_id")
@@ -221,10 +502,14 @@ def compose(ctx: click.Context, specs: tuple[str, ...], prompt: str | None, no_a
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
 def team(ctx: click.Context, team_id: str, prompt: str | None, no_attach: bool) -> None:
-    """👥 Run a team of agents in Docker sandboxes."""
+    """👥 Run a team of agents."""
     runner = AgentRunner(ctx.obj["config"])
     runner.run_team(team_id, ctx.obj["project_path"], prompt, attach=not no_attach)
 
+
+# ═══════════════════════════════════════════════════════════════════
+# Compare — ag compare <agents...>
+# ═══════════════════════════════════════════════════════════════════
 
 @main.command()
 @click.argument("agents", nargs=-1, required=True)
@@ -236,13 +521,15 @@ def compare(ctx: click.Context, agents: tuple[str, ...], prompt: str | None) -> 
     runner.run_compare(list(agents), ctx.obj["project_path"], prompt)
 
 
-# ─── Ask command (shortcut) ──────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# Ask — ag ask <question>
+# ═══════════════════════════════════════════════════════════════════
 
 @main.command()
 @click.argument("question", nargs=-1, required=True)
 @click.option("-a", "--agent", "agent_id", default="claude", help="Agent to use (default: claude)")
 @click.option("-r", "--role", default=None, help="Role label")
-@click.option("--test", "ask_tests", is_flag=True, help="Ask the agent to run the detected test command")
+@click.option("--test", "ask_tests", is_flag=True, help="Ask agent to run tests")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
 def ask(
@@ -271,23 +558,15 @@ def ask(
     )
 
 
-# ─── Workflow commands ───────────────────────────────────────────
-
-@main.command(name="review")
-@click.option("--no-test", is_flag=True, help="Skip running tests")
-@click.option("--test-cmd", default=None, help="Test command to run")
-@click.pass_context
-def review(ctx: click.Context, no_test: bool, test_cmd: str | None) -> None:
-    """🔍 Review current git changes, run tests, then merge or discard."""
-    engine = WorkflowEngine(ctx.obj["config"])
-    engine.review(ctx.obj["project_path"], auto_test=not no_test, test_cmd=test_cmd)
-
+# ═══════════════════════════════════════════════════════════════════
+# Workflow shortcuts — ag diff / ag merge / ag review
+# ═══════════════════════════════════════════════════════════════════
 
 @main.command(name="diff")
 @click.option("--patch", is_flag=True, help="Show the full diff after the summary")
 @click.pass_context
 def diff_cmd(ctx: click.Context, patch: bool) -> None:
-    """📊 Show a git diff summary for the project."""
+    """📊 Git diff summary for the project."""
     engine = WorkflowEngine(ctx.obj["config"])
     if engine.print_diff_summary(ctx.obj["project_path"]) and patch:
         diff_text = engine.get_git_diff(ctx.obj["project_path"])
@@ -298,9 +577,19 @@ def diff_cmd(ctx: click.Context, patch: bool) -> None:
 @click.option("-m", "--message", default="Update project", help="Commit message")
 @click.pass_context
 def merge(ctx: click.Context, message: str) -> None:
-    """✅ Stage all changes and commit them."""
+    """✅ Stage all changes and commit."""
     engine = WorkflowEngine(ctx.obj["config"])
     engine.merge_changes(ctx.obj["project_path"], message)
+
+
+@main.command(name="review")
+@click.option("--no-test", is_flag=True, help="Skip running tests")
+@click.option("--test-cmd", default=None, help="Test command to run")
+@click.pass_context
+def review(ctx: click.Context, no_test: bool, test_cmd: str | None) -> None:
+    """🔍 Review git changes, run tests, then merge or discard."""
+    engine = WorkflowEngine(ctx.obj["config"])
+    engine.review(ctx.obj["project_path"], auto_test=not no_test, test_cmd=test_cmd)
 
 
 @main.command(name="test")
@@ -313,270 +602,9 @@ def test_cmd(ctx: click.Context, test_command: str | None) -> None:
     engine.print_test_results(results)
 
 
-# ─── Status dashboard ───────────────────────────────────────────
-
-@main.command()
-@click.pass_context
-def status(ctx: click.Context) -> None:
-    """📊 Show dashboard: all sessions, sandboxes and agents at a glance."""
-    config = ctx.obj["config"]
-    tmux_mgr = TmuxManager(config)
-    sandbox_mgr = SandboxManager(config)
-
-    # Recover orphaned sessions first, then cleanup stale ones
-    recovered = recover_orphaned_sessions()
-    active_sessions = tmux_mgr.list_sessions()
-    active_names = [s["name"] for s in active_sessions]
-    cleaned = cleanup_stale_sessions(active_names)
-    if cleaned > 0:
-        console.print(f"[dim]Cleaned up {cleaned} stale session(s)[/dim]")
-
-    # Get all state
-    all_state = list_all_sessions()
-
-    # Get Docker sandboxes
-    sandboxes = sandbox_mgr.list_sandboxes()
-
-    # ── Summary panel ──
-    n_sessions = len(active_sessions)
-    n_sandboxes = len([sb for sb in sandboxes if "Up" in sb["status"]])
-    n_agents = sum(len(s.get("windows", {})) for s in all_state.values())
-
-    summary = (
-        f"Sessions:  [cyan]{n_sessions}[/cyan]   "
-        f"Sandboxes: [green]{n_sandboxes}[/green]   "
-        f"Agents:    [yellow]{n_agents}[/yellow]"
-    )
-    console.print(Panel(summary, title="🧊 Agentbox Dashboard", border_style="cyan"))
-
-    if not active_sessions and not sandboxes:
-        console.print("\n[dim]No active sessions or sandboxes.[/dim]")
-        console.print("[dim]Run 'ag' to pick an agent, or 'ag claude' to start.[/dim]")
-        return
-
-    # ── Sessions & Agents table ──
-    if active_sessions:
-        table = Table(title="🖥️  Tmux Sessions & Agents")
-        table.add_column("Session", style="cyan", width=18)
-        table.add_column("Project", style="green", width=15)
-        table.add_column("Agent", style="yellow", width=10)
-        table.add_column("Role", style="magenta", width=12)
-        table.add_column("Container", style="blue", width=25)
-        table.add_column("Status", style="bold", width=8)
-        table.add_column("Prompt", style="dim", max_width=30)
-
-        for s in active_sessions:
-            name = s["name"]
-            state = all_state.get(name, {})
-            project = state.get("project_name", "")
-            windows_state = state.get("windows", {})
-
-            if not windows_state:
-                table.add_row(name, project, "-", "-", "-", s["attached"], "")
-                continue
-
-            first = True
-            for wname, winfo in windows_state.items():
-                agent = winfo.get("agent", "-")
-                role = winfo.get("role", agent)
-                prompt_text = winfo.get("prompt", "")[:30]
-
-                # Match sandbox container
-                container = "-"
-                for sb in sandboxes:
-                    if agent in sb["name"] and "Up" in sb["status"]:
-                        container = sb["name"]
-                        break
-
-                status_str = "🟢" if s["attached"] == "Yes" else "⚪"
-
-                if first:
-                    table.add_row(
-                        name, project, agent, role, container, status_str, prompt_text
-                    )
-                    first = False
-                else:
-                    table.add_row(
-                        "", "", agent, role, container, status_str, prompt_text
-                    )
-
-        console.print(table)
-
-    # ── Docker Sandboxes table ──
-    if sandboxes:
-        sb_table = Table(title="🐳 Docker Sandboxes")
-        sb_table.add_column("Container ID", style="dim", width=12)
-        sb_table.add_column("Name", style="cyan", width=30)
-        sb_table.add_column("Agent", style="yellow", width=10)
-        sb_table.add_column("Image", style="green", width=25)
-        sb_table.add_column("Status", style="bold")
-
-        for sb in sandboxes:
-            status_style = "green" if "Up" in sb["status"] else "red"
-            sb_table.add_row(
-                sb["container_id"],
-                sb["name"],
-                sb["agent"],
-                sb["image"],
-                f"[{status_style}]{sb['status']}[/{status_style}]",
-            )
-
-        console.print(sb_table)
-
-    # ── Quick tips ──
-    console.print("\n[dim]💡 Tips:[/dim]")
-    console.print("[dim]   ag session attach <name>   — Attach to a session[/dim]")
-    console.print("[dim]   ag history                — View past sessions[/dim]")
-    console.print("[dim]   ag sandbox logs <name>    — View sandbox logs[/dim]")
-    console.print("[dim]   ag sandbox kill <name>    — Stop a sandbox[/dim]")
-
-
-# ─── History & Reconnect commands ────────────────────────────────
-
-@main.group(invoke_without_command=True)
-@click.option("--limit", "-n", default=20, help="Number of sessions to show")
-@click.pass_context
-def history(ctx: click.Context, limit: int) -> None:
-    """📜 View session history and reconnect."""
-    if ctx.invoked_subcommand is not None:
-        return
-
-    # Recover orphaned sessions before showing history
-    recover_orphaned_sessions()
-
-    from .state import load_state
-
-    state = load_state()
-    sessions = state.get("sessions", {})
-
-    if not sessions:
-        console.print("[dim]No session history yet.[/dim]")
-        console.print("[dim]Run 'ag' to start your first agent session.[/dim]")
-        return
-
-    tmux_mgr = TmuxManager(ctx.obj["config"])
-    active_sessions = tmux_mgr.list_sessions()
-    active_names = {s["name"] for s in active_sessions}
-
-    table = Table(title="📜 Session History")
-    table.add_column("#", style="dim", width=4)
-    table.add_column("Session", style="cyan")
-    table.add_column("Project", style="green")
-    table.add_column("Path", style="dim", max_width=35)
-    table.add_column("Agents", style="yellow", max_width=40)
-    table.add_column("Started", style="magenta", width=19)
-    table.add_column("Status", style="bold")
-
-    # Sort by creation time, newest first
-    sorted_sessions = sorted(
-        sessions.items(),
-        key=lambda x: x[1].get("created_at", ""),
-        reverse=True,
-    )
-
-    for i, (sname, sstate) in enumerate(sorted_sessions[:limit], 1):
-        project = sstate.get("project_name", "")
-        path = sstate.get("project_path", "")
-        created = sstate.get("created_at", "")[:19]
-
-        # Build agents summary
-        windows = sstate.get("windows", {})
-        if windows:
-            agent_parts = []
-            for wname, winfo in windows.items():
-                agent = winfo.get("agent", "?")
-                role = winfo.get("role", agent)
-                if role != agent:
-                    agent_parts.append(f"{agent}→{role}")
-                else:
-                    agent_parts.append(agent)
-            agents_str = ", ".join(agent_parts)
-        else:
-            agents_str = "-"
-
-        # Status
-        if sname in active_names:
-            status_str = "[green]🟢 active[/green]"
-        else:
-            status_str = "[dim]⚪ dead[/dim]"
-
-        table.add_row(str(i), sname, project, path, agents_str, created, status_str)
-
-    console.print(table)
-
-    # Interactive reconnect / delete
-    console.print("\n[dim]Actions:[/dim]")
-    console.print("[dim]   ag session attach <name>  — Reconnect to an active session[/dim]")
-    console.print("[dim]   ag history delete <name> — Remove a session from history[/dim]")
-
-
-@history.command(name="delete")
-@click.argument("session_name")
-@click.pass_context
-def history_delete(ctx: click.Context, session_name: str) -> None:
-    """🗑️ Remove a session from history."""
-    from .state import unregister_session
-
-    state_info = get_session_info(session_name)
-    if not state_info:
-        console.print(f"[yellow]Session '{session_name}' not found in history.[/yellow]")
-        return
-
-    tmux_mgr = TmuxManager(ctx.obj["config"])
-    # Kill tmux session if still running
-    active_sessions = tmux_mgr.list_sessions()
-    active_names = {s["name"] for s in active_sessions}
-    if session_name in active_names:
-        if click.confirm(f"Session '{session_name}' is still running. Kill it?", default=False):
-            tmux_mgr.kill_session(session_name)
-
-    unregister_session(session_name)
-    console.print(f"[green]✓ Session '{session_name}' removed from history.[/green]")
-
-
-@main.command()
-@click.argument("session_name", required=False)
-@click.pass_context
-def reconnect(ctx: click.Context, session_name: str | None) -> None:
-    """🔄 Reconnect to a previous session."""
-    tmux_mgr = TmuxManager(ctx.obj["config"])
-
-    if session_name:
-        tmux_mgr.attach_session(session_name)
-        return
-
-    # No session name given — show picker
-    active_sessions = tmux_mgr.list_sessions()
-
-    if not active_sessions:
-        console.print("[dim]No active sessions to reconnect to.[/dim]")
-        console.print("[dim]Run 'ag' to start a new agent session.[/dim]")
-        return
-
-    if len(active_sessions) == 1:
-        sname = active_sessions[0]["name"]
-        console.print(f"[dim]Only one active session: {sname}[/dim]")
-        tmux_mgr.attach_session(sname)
-        return
-
-    console.print("\n[bold]🔄 Active sessions — select one to reconnect:[/bold]\n")
-    for i, s in enumerate(active_sessions, 1):
-        state = get_session_info(s["name"]) or {}
-        project = state.get("project_name", "")
-        windows = state.get("windows", {})
-        agents = ", ".join(winfo.get("agent", "?") for winfo in windows.values()) if windows else "-"
-        console.print(f"  [green]{i}[/green]. {s['name']}  project={project}  agents=[cyan]{agents}[/cyan]  attached={s['attached']}")
-
-    console.print()
-    choice = click.prompt("Select session", type=int, default=1)
-
-    if 1 <= choice <= len(active_sessions):
-        tmux_mgr.attach_session(active_sessions[choice - 1]["name"])
-    else:
-        console.print("[red]Invalid selection[/red]")
-
-
-# ─── List commands ───────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# List — ag list
+# ═══════════════════════════════════════════════════════════════════
 
 @main.command()
 @click.option("--all", "show_all", is_flag=True, help="Show all details")
@@ -587,7 +615,6 @@ def list(ctx: click.Context, show_all: bool) -> None:
     runner = AgentRunner(config)
     runner.list_available_agents()
 
-    # Show teams
     teams = list_teams(config)
     if teams:
         table = Table(title="Agent Teams")
@@ -605,308 +632,91 @@ def list(ctx: click.Context, show_all: bool) -> None:
         console.print()
         console.print(table)
 
-    # Show local detection
     local = detect_local_agents()
     if local:
-        console.print("\n[bold]Detected locally (available for sandbox):[/bold]")
+        console.print("\n[bold]Detected locally:[/bold]")
         for a in local:
             console.print(f"  ✅ [cyan]{a['id']}[/cyan] → {a['path']}")
 
-    # Show compose examples
-    console.print("\n[bold]Compose examples:[/bold]")
-    console.print("  [dim]agentbox compose codex:planner claude:coder codex:reviewer[/dim]")
-    console.print("  [dim]agentbox compose claude:architect aider:test-writer -p \"Build auth\"[/dim]")
+    console.print("\n[dim]💡 [cyan]ag compose claude:coder codex:reviewer[/cyan] to compose[/dim]")
 
 
-# ─── Sandbox commands ────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# Init — ag init
+# ═══════════════════════════════════════════════════════════════════
 
-@main.group()
+@main.command()
 @click.pass_context
-def sandbox(ctx: click.Context) -> None:
-    """📦 Manage Docker sandboxes."""
-    pass
+def init(ctx: click.Context) -> None:
+    """🎉 Initialize agentbox in the current project."""
+    project_path = ctx.obj["project_path"]
+    project_name = Path(project_path).name
 
+    agents_md = Path(project_path) / "AGENTS.md"
+    if not agents_md.exists():
+        agents_md.write_text(f"""# {project_name} - Agent Guide
 
-@sandbox.command(name="list")
-@click.pass_context
-def sandbox_list(ctx: click.Context) -> None:
-    """List running sandboxes."""
-    mgr = SandboxManager(ctx.obj["config"])
-    mgr.print_sandboxes()
+This file helps AI agents understand your project.
 
+## Project Overview
 
-@sandbox.command(name="create")
-@click.argument("agent_id")
-@click.option("--image", default=None, help="Docker image to use")
-@click.pass_context
-def sandbox_create(ctx: click.Context, agent_id: str, image: str | None) -> None:
-    """Create a sandbox for an agent."""
-    mgr = SandboxManager(ctx.obj["config"])
-    mgr.create_sandbox(
-        name=f"{agent_id}-{Path(ctx.obj['project_path']).name}",
-        agent_id=agent_id,
-        project_path=ctx.obj["project_path"],
-        image=image,
-    )
+<!-- Describe your project here -->
 
+## Architecture
 
-@sandbox.command(name="kill")
-@click.argument("name", required=False)
-@click.option("--all", "kill_all", is_flag=True, help="Kill all sandboxes")
-@click.pass_context
-def sandbox_kill(ctx: click.Context, name: str | None, kill_all: bool) -> None:
-    """Stop and remove sandbox(es)."""
-    mgr = SandboxManager(ctx.obj["config"])
-    if kill_all:
-        count = mgr.kill_all_sandboxes()
-        console.print(f"[green]Killed {count} sandbox(es)[/green]")
-    elif name:
-        mgr.kill_sandbox(name)
+<!-- Key directories and their purposes -->
+
+## Development
+
+<!-- How to build, test, and run -->
+
+## Conventions
+
+<!-- Coding style, commit messages, etc. -->
+""")
+        console.print("[green]✓ Created AGENTS.md[/green]")
     else:
-        console.print("[red]Specify a sandbox name or --all[/red]")
+        console.print("[dim]AGENTS.md already exists[/dim]")
 
+    agentbox_dir = Path(project_path) / ".agentbox"
+    agentbox_dir.mkdir(exist_ok=True)
+    console.print("[green]✓ Created .agentbox/[/green]")
 
-@sandbox.command(name="logs")
-@click.argument("name")
-@click.option("--tail", default=50, help="Number of lines to show")
-@click.pass_context
-def sandbox_logs(ctx: click.Context, name: str, tail: int) -> None:
-    """View sandbox logs."""
-    mgr = SandboxManager(ctx.obj["config"])
-    logs = mgr.get_sandbox_logs(name, tail)
-    console.print(logs)
-
-
-@sandbox.command(name="exec")
-@click.argument("name")
-@click.argument("command", nargs=-1, required=True)
-@click.option("-i", "--interactive", is_flag=True, help="Interactive mode")
-@click.pass_context
-def sandbox_exec(ctx: click.Context, name: str, command: tuple[str, ...], interactive: bool) -> None:
-    """Execute command in a sandbox."""
-    mgr = SandboxManager(ctx.obj["config"])
-    mgr.exec_in_sandbox(name, list(command), interactive)
-
-
-@sandbox.command(name="build")
-@click.argument("agent_id")
-@click.pass_context
-def sandbox_build(ctx: click.Context, agent_id: str) -> None:
-    """Build Docker image for an agent."""
-    mgr = SandboxManager(ctx.obj["config"])
-    mgr.build_agent_image(agent_id)
-
-
-# ─── Stack commands (Docker Compose) ─────────────────────────────
-
-@main.group(name="stack")
-@click.pass_context
-def stack_group(ctx: click.Context) -> None:
-    """🐳 Manage Docker Compose multi-agent stacks."""
-    pass
-
-
-@stack_group.command(name="up")
-@click.argument("agents", nargs=-1, required=True)
-@click.option("--foreground", is_flag=True, help="Run compose in the foreground")
-@click.pass_context
-def stack_up(ctx: click.Context, agents: tuple[str, ...], foreground: bool) -> None:
-    """Start a Docker Compose stack for AGENTS."""
-    mgr = DockerComposeManager(ctx.obj["config"])
-    mgr.up(list(agents), ctx.obj["project_path"], detach=not foreground)
-
-
-@stack_group.command(name="down")
-@click.pass_context
-def stack_down(ctx: click.Context) -> None:
-    """Stop and remove the project's Docker Compose stack."""
-    mgr = DockerComposeManager(ctx.obj["config"])
-    mgr.down(ctx.obj["project_path"])
-
-
-@stack_group.command(name="logs")
-@click.option("--tail", default=100, help="Number of log lines per service")
-@click.pass_context
-def stack_logs(ctx: click.Context, tail: int) -> None:
-    """Show Docker Compose stack logs."""
-    mgr = DockerComposeManager(ctx.obj["config"])
-    mgr.logs(ctx.obj["project_path"], tail=tail)
-
-
-@stack_group.command(name="status")
-@click.pass_context
-def stack_status(ctx: click.Context) -> None:
-    """Show Docker Compose stack status."""
-    mgr = DockerComposeManager(ctx.obj["config"])
-    mgr.status(ctx.obj["project_path"])
-
-
-# ─── Session commands ────────────────────────────────────────────
-
-@main.group(name="session")
-@click.pass_context
-def session_group(ctx: click.Context) -> None:
-    """🖥️ Manage tmux sessions."""
-    pass
-
-
-@session_group.command(name="list")
-@click.pass_context
-def session_list(ctx: click.Context) -> None:
-    """List agentbox tmux sessions with details."""
-    tmux_mgr = TmuxManager(ctx.obj["config"])
-
-    # Cleanup stale sessions first
-    active_sessions = tmux_mgr.list_sessions()
-    active_names = [s["name"] for s in active_sessions]
-    cleaned = cleanup_stale_sessions(active_names)
-    if cleaned > 0:
-        console.print(f"[dim]Cleaned up {cleaned} stale session(s)[/dim]")
-
-    # Get tracked state
-    all_state = list_all_sessions()
-
-    if not active_sessions and not all_state:
-        console.print("[dim]No agentbox sessions running.[/dim]")
-        return
-
-    # Combine tmux info with state
-    table = Table(title="🧊 Agentbox Sessions")
-    table.add_column("Session", style="cyan")
-    table.add_column("Project", style="green")
-    table.add_column("Path", style="dim", max_width=40)
-    table.add_column("Windows", style="magenta")
-    table.add_column("Attached", style="yellow")
-    table.add_column("Agents", style="blue", max_width=60)
-
-    for s in active_sessions:
-        name = s["name"]
-        state = all_state.get(name, {})
-        project = state.get("project_name", "")
-        path = state.get("project_path", "")
-
-        # Build agents summary from state
-        windows_state = state.get("windows", {})
-        if windows_state:
-            agent_parts = []
-            for wname, winfo in windows_state.items():
-                agent = winfo.get("agent", "?")
-                role = winfo.get("role", agent)
-                if role != agent:
-                    agent_parts.append(f"{agent}→{role}")
-                else:
-                    agent_parts.append(agent)
-            agents_str = ", ".join(agent_parts)
+    gitignore = Path(project_path) / ".gitignore"
+    try:
+        gitignore_text = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
+        ignored = any(line.strip() in {".agentbox", ".agentbox/"} for line in gitignore_text.splitlines())
+        if ignored:
+            console.print("[dim].agentbox/ already ignored[/dim]")
         else:
-            agents_str = ""
+            prefix = "\n" if gitignore_text and not gitignore_text.endswith("\n") else ""
+            spacer = "\n" if gitignore_text else ""
+            with open(gitignore, "a", encoding="utf-8") as f:
+                f.write(f"{prefix}{spacer}# Agentbox runtime\n.agentbox/\n")
+            console.print("[green]✓ Added .agentbox/ to .gitignore[/green]")
+    except OSError:
+        console.print("[yellow]⚠ Could not update .gitignore[/yellow]")
 
-        table.add_row(
-            name,
-            project,
-            path,
-            s["windows"],
-            s["attached"],
-            agents_str,
-        )
-
-    # Show sessions in state but not in tmux (stale)
-    for sname, sstate in all_state.items():
-        if sname not in active_names:
-            table.add_row(
-                sname,
-                sstate.get("project_name", ""),
-                sstate.get("project_path", ""),
-                "?",
-                "dead",
-                "[dim](stale)[/dim]",
-            )
-
-    console.print(table)
+    console.print(Panel(
+        f"[bold green]🧊 Agentbox initialized for {project_name}![/bold green]\n\n"
+        f"Next steps:\n"
+        f"  [cyan]ag[/cyan]                  Pick an agent interactively\n"
+        f"  [cyan]ag claude[/cyan]           Run Claude Code in sandbox\n"
+        f"  [cyan]ag compose claude:coder codex:reviewer[/cyan]\n"
+        f"  [cyan]ag status[/cyan]           View all sessions & sandboxes",
+        title="🧊 Agentbox",
+        border_style="cyan",
+    ))
 
 
-@session_group.command(name="attach")
-@click.argument("session_name")
-@click.pass_context
-def session_attach(ctx: click.Context, session_name: str) -> None:
-    """Attach to a tmux session."""
-    mgr = TmuxManager(ctx.obj["config"])
-    mgr.attach_session(session_name)
-
-
-@session_group.command(name="kill")
-@click.argument("session_name")
-@click.pass_context
-def session_kill(ctx: click.Context, session_name: str) -> None:
-    """Kill a tmux session."""
-    mgr = TmuxManager(ctx.obj["config"])
-    mgr.kill_session(session_name)
-    unregister_session(session_name)
-
-
-@session_group.command(name="windows")
-@click.argument("session_name")
-@click.pass_context
-def session_windows(ctx: click.Context, session_name: str) -> None:
-    """List windows in a session with agent details."""
-    mgr = TmuxManager(ctx.obj["config"])
-    windows = mgr.list_windows(session_name)
-
-    if not windows:
-        console.print(f"[dim]No windows in {session_name}[/dim]")
-        return
-
-    # Get state info for this session
-    state_info = get_session_info(session_name)
-    windows_state = state_info.get("windows", {}) if state_info else {}
-
-    table = Table(title=f"🪟 Windows in {session_name}")
-    table.add_column("#", style="dim")
-    table.add_column("Window", style="cyan")
-    table.add_column("Agent", style="green")
-    table.add_column("Role", style="yellow")
-    table.add_column("Active", style="bold")
-    table.add_column("Prompt", style="dim", max_width=40)
-
-    for w in windows:
-        wname = w["name"]
-        wstate = windows_state.get(wname, {})
-        agent = wstate.get("agent", "-")
-        role = wstate.get("role", "-")
-        prompt = wstate.get("prompt", "")
-
-        table.add_row(
-            w["index"],
-            wname,
-            agent,
-            role,
-            w["active"],
-            prompt[:40] if prompt else "",
-        )
-
-    console.print(table)
-
-    # Show session project info
-    if state_info:
-        console.print(f"\n[dim]Project: {state_info.get('project_name', '')} ({state_info.get('project_path', '')})[/dim]")
-
-
-# ─── Pipeline commands (orchestrated multi-agent workflows) ──────
+# ═══════════════════════════════════════════════════════════════════
+# Pipeline — ag pipeline dev/research/compare/custom
+# ═══════════════════════════════════════════════════════════════════
 
 @main.group()
 @click.pass_context
 def pipeline(ctx: click.Context) -> None:
-    """🧠 Run orchestrated multi-agent pipelines.
-
-    Pipelines coordinate agents sequentially, passing outputs
-    between steps. Each step can use a different agent with a
-    different role and prompt template.
-
-    \b
-    Built-in pipelines:
-      dev       Plan → Code → Review (codex:planner, claude:coder, codex:reviewer)
-      research  Research → Summarize → Critique
-      compare   Run same prompt on multiple agents, then synthesize
-    """
+    """🧠 Orchestrated multi-agent pipelines."""
     pass
 
 
@@ -914,7 +724,7 @@ def pipeline(ctx: click.Context) -> None:
 @click.argument("prompt")
 @click.pass_context
 def pipeline_dev(ctx: click.Context, prompt: str) -> None:
-    """🔧 Dev pipeline: Plan → Code → Review."""
+    """🔧 Plan → Code → Review."""
     orch = Orchestrator(ctx.obj["config"])
     pipe = dev_pipeline(prompt)
     orch.execute(pipe, ctx.obj["project_path"])
@@ -924,7 +734,7 @@ def pipeline_dev(ctx: click.Context, prompt: str) -> None:
 @click.argument("topic")
 @click.pass_context
 def pipeline_research(ctx: click.Context, topic: str) -> None:
-    """🔍 Research pipeline: Research → Summarize → Critique."""
+    """🔍 Research → Summarize → Critique."""
     orch = Orchestrator(ctx.obj["config"])
     pipe = research_pipeline(topic)
     orch.execute(pipe, ctx.obj["project_path"])
@@ -935,7 +745,7 @@ def pipeline_research(ctx: click.Context, topic: str) -> None:
 @click.option("-a", "--agents", multiple=True, default=["claude", "codex"], help="Agents to compare")
 @click.pass_context
 def pipeline_compare(ctx: click.Context, prompt: str, agents: tuple[str, ...]) -> None:
-    """⚡ Compare pipeline: Run on multiple agents, then synthesize."""
+    """⚡ Compare on multiple agents, then synthesize."""
     orch = Orchestrator(ctx.obj["config"])
     pipe = compare_pipeline(prompt, list(agents))
     orch.execute(pipe, ctx.obj["project_path"])
@@ -1021,7 +831,9 @@ def pipeline_show(ctx: click.Context, run_id: str) -> None:
         console.print(table)
 
 
-# ─── Config commands ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# Config — ag config show/edit/reset
+# ═══════════════════════════════════════════════════════════════════
 
 @main.group()
 @click.pass_context
@@ -1072,74 +884,81 @@ def config_reset(ctx: click.Context) -> None:
     console.print("[green]✓ Configuration reset to defaults[/green]")
 
 
-# ─── Init command ────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+# Sandbox — ag sandbox exec/build (less common, kept as subgroup)
+# ═══════════════════════════════════════════════════════════════════
 
-@main.command()
+@main.group()
 @click.pass_context
-def init(ctx: click.Context) -> None:
-    """🎉 Initialize agentbox in the current project."""
-    project_path = ctx.obj["project_path"]
-    project_name = Path(project_path).name
+def sandbox(ctx: click.Context) -> None:
+    """📦 Advanced sandbox management."""
+    pass
 
-    # Create AGENTS.md if not exists
-    agents_md = Path(project_path) / "AGENTS.md"
-    if not agents_md.exists():
-        agents_md.write_text(f"""# {project_name} - Agent Guide
 
-This file helps AI agents understand your project.
+@sandbox.command(name="exec")
+@click.argument("name")
+@click.argument("command", nargs=-1, required=True)
+@click.option("-i", "--interactive", is_flag=True, help="Interactive mode")
+@click.pass_context
+def sandbox_exec(ctx: click.Context, name: str, command: tuple[str, ...], interactive: bool) -> None:
+    """Execute command in a sandbox."""
+    mgr = SandboxManager(ctx.obj["config"])
+    mgr.exec_in_sandbox(name, list(command), interactive)
 
-## Project Overview
 
-<!-- Describe your project here -->
+@sandbox.command(name="build")
+@click.argument("agent_id")
+@click.pass_context
+def sandbox_build(ctx: click.Context, agent_id: str) -> None:
+    """Build Docker image for an agent."""
+    mgr = SandboxManager(ctx.obj["config"])
+    mgr.build_agent_image(agent_id)
 
-## Architecture
 
-<!-- Key directories and their purposes -->
+# ═══════════════════════════════════════════════════════════════════
+# Stack — ag stack up/down/logs/status  (Docker Compose)
+# ═══════════════════════════════════════════════════════════════════
 
-## Development
+@main.group(name="stack")
+@click.pass_context
+def stack_group(ctx: click.Context) -> None:
+    """🐳 Docker Compose multi-agent stacks."""
+    pass
 
-<!-- How to build, test, and run -->
 
-## Conventions
+@stack_group.command(name="up")
+@click.argument("agents", nargs=-1, required=True)
+@click.option("--foreground", is_flag=True, help="Run compose in the foreground")
+@click.pass_context
+def stack_up(ctx: click.Context, agents: tuple[str, ...], foreground: bool) -> None:
+    """Start a Docker Compose stack for AGENTS."""
+    mgr = DockerComposeManager(ctx.obj["config"])
+    mgr.up(list(agents), ctx.obj["project_path"], detach=not foreground)
 
-<!-- Coding style, commit messages, etc. -->
-""")
-        console.print(f"[green]✓ Created AGENTS.md[/green]")
-    else:
-        console.print(f"[dim]AGENTS.md already exists[/dim]")
 
-    # Create .agentbox directory
-    agentbox_dir = Path(project_path) / ".agentbox"
-    agentbox_dir.mkdir(exist_ok=True)
-    console.print(f"[green]✓ Created .agentbox/[/green]")
+@stack_group.command(name="down")
+@click.pass_context
+def stack_down(ctx: click.Context) -> None:
+    """Stop and remove the project's Docker Compose stack."""
+    mgr = DockerComposeManager(ctx.obj["config"])
+    mgr.down(ctx.obj["project_path"])
 
-    # Keep generated compose files, state, and logs out of project commits.
-    gitignore = Path(project_path) / ".gitignore"
-    try:
-        gitignore_text = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
-        ignored = any(line.strip() in {".agentbox", ".agentbox/"} for line in gitignore_text.splitlines())
-        if ignored:
-            console.print("[dim].agentbox/ already ignored[/dim]")
-        else:
-            prefix = "\n" if gitignore_text and not gitignore_text.endswith("\n") else ""
-            spacer = "\n" if gitignore_text else ""
-            with open(gitignore, "a", encoding="utf-8") as f:
-                f.write(f"{prefix}{spacer}# Agentbox runtime\n.agentbox/\n")
-            console.print("[green]✓ Added .agentbox/ to .gitignore[/green]")
-    except OSError:
-        console.print("[yellow]⚠ Could not update .gitignore[/yellow]")
 
-    console.print(Panel(
-        f"[bold green]🧊 Agentbox initialized for {project_name}![/bold green]\n\n"
-        f"Next steps:\n"
-        f"  [cyan]agentbox[/cyan]                         - Pick an agent interactively\n"
-        f"  [cyan]agentbox claude[/cyan]                  - Run Claude Code in sandbox\n"
-        f"  [cyan]agentbox compose codex:planner claude:coder[/cyan] - Compose team\n"
-        f"  [cyan]agentbox status[/cyan]                  - View all sessions & sandboxes\n"
-        f"  [cyan]agentbox history[/cyan]                 - View session history",
-        title="🧊 Agentbox",
-        border_style="cyan",
-    ))
+@stack_group.command(name="logs")
+@click.option("--tail", default=100, help="Number of log lines per service")
+@click.pass_context
+def stack_logs(ctx: click.Context, tail: int) -> None:
+    """Show Docker Compose stack logs."""
+    mgr = DockerComposeManager(ctx.obj["config"])
+    mgr.logs(ctx.obj["project_path"], tail=tail)
+
+
+@stack_group.command(name="status")
+@click.pass_context
+def stack_status(ctx: click.Context) -> None:
+    """Show Docker Compose stack status."""
+    mgr = DockerComposeManager(ctx.obj["config"])
+    mgr.status(ctx.obj["project_path"])
 
 
 if __name__ == "__main__":
