@@ -432,11 +432,14 @@ def status(ctx: click.Context) -> None:
 
 # ─── History & Reconnect commands ────────────────────────────────
 
-@main.command()
+@main.group(invoke_without_command=True)
 @click.option("--limit", "-n", default=20, help="Number of sessions to show")
 @click.pass_context
 def history(ctx: click.Context, limit: int) -> None:
     """📜 View session history and reconnect."""
+    if ctx.invoked_subcommand is not None:
+        return
+
     from .state import load_state
 
     state = load_state()
