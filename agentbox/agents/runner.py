@@ -69,13 +69,19 @@ class AgentRunner:
         window_label = f"{display_role}-{agent_id}" if role else agent_id
 
         if use_sandbox:
-            return self._run_in_sandbox(
-                agent_id, agent_config, session_name, project_path, prompt, attach, role, window_label
-            )
-        else:
-            return self._run_local(
-                agent_id, agent_config, session_name, project_path, prompt, attach, role, window_label
-            )
+            # Check Docker availability before attempting sandbox
+            if not self.sandbox_mgr._docker_available():
+                console.print("[yellow]⚠ Docker is not available or not running.[/yellow]")
+                console.print("[dim]Falling back to local mode. Start Docker to use sandbox.[/dim]")
+                use_sandbox = False
+            else:
+                return self._run_in_sandbox(
+                    agent_id, agent_config, session_name, project_path, prompt, attach, role, window_label
+                )
+
+        return self._run_local(
+            agent_id, agent_config, session_name, project_path, prompt, attach, role, window_label
+        )
 
     def _run_local(
         self,
@@ -96,7 +102,7 @@ class AgentRunner:
         if not shutil.which(cli_name):
             console.print(f"[yellow]⚠ '{cli_name}' not found locally.[/yellow]")
             console.print(f"[dim]Install with: {agent_config.get('install_cmd', 'N/A')}[/dim]")
-            console.print(f"[dim]Without --local, it will run in Docker sandbox automatically.[/dim]")
+            console.print(f"[dim]Start Docker to use sandbox mode, or install the agent locally.[/dim]")
             return False
 
         cmd = self._build_agent_command(agent_id, run_cmd, prompt)

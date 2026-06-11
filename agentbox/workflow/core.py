@@ -259,10 +259,15 @@ class WorkflowEngine:
 
         window_label = f"{role}-{agent_id}" if role else agent_id
         if use_sandbox:
-            started = self._launch_sandbox_agent(
-                agent_id, agent_config, session_name, path, injected_prompt, window_label, role
-            )
-        else:
+            if not self.sandbox_mgr._docker_available():
+                console.print("[yellow]⚠ Docker is not available or not running.[/yellow]")
+                console.print("[dim]Falling back to local mode. Start Docker to use sandbox.[/dim]")
+                use_sandbox = False
+            else:
+                started = self._launch_sandbox_agent(
+                    agent_id, agent_config, session_name, path, injected_prompt, window_label, role
+                )
+        if not use_sandbox:
             started = self._launch_local_agent(
                 agent_id, agent_config, session_name, path, injected_prompt, window_label, role
             )
@@ -324,7 +329,7 @@ class WorkflowEngine:
         if not shutil.which(cli_name):
             console.print(f"[yellow]'{cli_name}' not found locally.[/yellow]")
             console.print(f"[dim]Install with: {agent_config.get('install_cmd', 'N/A')}[/dim]")
-            console.print("[dim]Without --local, it will run in Docker sandbox automatically.[/dim]")
+            console.print("[dim]Start Docker to use sandbox mode, or install the agent locally.[/dim]")
             return False
 
         cmd = self._agent_command(agent_id, agent_config, prompt)
