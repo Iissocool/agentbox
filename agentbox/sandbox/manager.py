@@ -260,6 +260,15 @@ class SandboxManager:
             container_id = result.stdout.strip()[:12]
             console.print(f"[green]✓ Sandbox created:[/green] {container_name} ({container_id})")
 
+            # Verify agent is installed (even from cached image — cache may be bad)
+            run_cmd = agent_config.get("run_cmd", agent_id)
+            verify_result = subprocess.run(
+                ["docker", "exec", container_name, "which", run_cmd.split()[0]],
+                capture_output=True, text=True,
+            )
+            if verify_result.returncode != 0:
+                needs_install = True
+
             # Install agent inside container if needed
             if needs_install:
                 install_cmd = agent_config.get("install_cmd", "")
@@ -275,11 +284,19 @@ class SandboxManager:
                             "apt-get install -y nodejs 2>/dev/null || true"])
                     # Install the agent
                     self.exec_in_sandbox(name, ["bash", "-c", install_cmd])
-                    console.print(f"[green]✓ {agent_id} installed in sandbox[/green]")
 
-                    # Save the installed state as a cached image for next time
-                    target_image = agent_config.get("docker_image", f"agentbox-{agent_id}:latest")
-                    self._commit_container_as_image(container_name, target_image)
+                    # Verify installation succeeded
+                    verify_again = subprocess.run(
+                        ["docker", "exec", container_name, "which", run_cmd.split()[0]],
+                        capture_output=True, text=True,
+                    )
+                    if verify_again.returncode == 0:
+                        console.print(f"[green]✓ {agent_id} installed in sandbox[/green]")
+                        # Save the installed state as a cached image for next time
+                        target_image = agent_config.get("docker_image", f"agentbox-{agent_id}:latest")
+                        self._commit_container_as_image(container_name, target_image)
+                    else:
+                        console.print(f"[red]✘ Failed to install {agent_id} in sandbox[/red]")
 
             return {
                 "container_id": container_id,
@@ -375,17 +392,26 @@ class SandboxManager:
         """Stop a sandbox container without removing it (preserves installed agents)."""
         container_name = f"agentbox-{name}"
         try:
-            # Commit current state to cache image before stopping
+            # Only commit if the agent is actually installed in the container
             try:
-                result = subprocess.run(
+                agent_result = subprocess.run(
                     ["docker", "inspect", "--format", "{{.Config.Labels.agentbox.agent}}", container_name],
                     capture_output=True, text=True,
                 )
-                if result.returncode == 0:
-                    agent_id = result.stdout.strip()
+                if agent_result.returncode == 0:
+                    agent_id = agent_result.stdout.strip()
                     if agent_id:
-                        target_image = f"agentbox-{agent_id}:latest"
-                        self._commit_container_as_image(container_name, target_image)
+                        agent_config = self.config.get("agents", {}).get(agent_id, {})
+                        run_cmd = agent_config.get("run_cmd", agent_id)
+                        check = subprocess.run(
+                            ["docker", "exec", container_name, "which", run_cmd.split()[0]],
+                            capture_output=True, text=True,
+                        )
+                        if check.returncode == 0:
+                            target_image = f"agentbox-{agent_id}:latest"
+                            self._commit_container_as_image(container_name, target_image)
+                        else:
+                            console.print(f"[yellow]⚠ Agent '{agent_id}' not installed in container, skipping image cache[/yellow]")
             except Exception:
                 pass
 
