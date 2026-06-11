@@ -311,21 +311,35 @@ def attach(ctx: click.Context, session_name: str | None) -> None:
 @main.command()
 @click.argument("session_name", required=False)
 @click.option("--all", "kill_all", is_flag=True, help="Kill all sessions and sandboxes")
+@click.option("--rm", "remove", is_flag=True, help="Permanently delete sandbox containers (data lost!)")
 @click.pass_context
-def kill(ctx: click.Context, session_name: str | None, kill_all: bool) -> None:
-    """🔥 Kill a session and its sandbox."""
+def kill(ctx: click.Context, session_name: str | None, kill_all: bool, remove: bool) -> None:
+    """🔥 Stop a session and its sandbox (preserves data by default).
+
+    By default, only stops containers without deleting them.
+    Use --rm to permanently delete sandbox data.
+    """
     tmux_mgr = TmuxManager(ctx.obj["config"])
     sandbox_mgr = SandboxManager(ctx.obj["config"])
 
     if kill_all:
-        # Kill all sandboxes
-        sb_count = sandbox_mgr.kill_all_sandboxes()
+        if remove:
+            sb_count = sandbox_mgr.kill_all_sandboxes()
+        else:
+            # Just stop, don't remove
+            sandboxes = sandbox_mgr.list_sandboxes()
+            sb_count = 0
+            for sb in sandboxes:
+                name = sb["name"].replace("agentbox-", "", 1)
+                if sandbox_mgr.stop_sandbox(name):
+                    sb_count += 1
         # Kill all agentbox tmux sessions
         active = tmux_mgr.list_sessions()
         for s in active:
             tmux_mgr.kill_session(s["name"])
             unregister_session(s["name"])
-        console.print(f"[green]✓ Killed {len(active)} session(s) and {sb_count} sandbox(es)[/green]")
+        action = "removed" if remove else "stopped"
+        console.print(f"[green]✓ Killed {len(active)} session(s), {sb_count} sandbox(es) {action}[/green]")
         return
 
     if not session_name:
@@ -335,20 +349,20 @@ def kill(ctx: click.Context, session_name: str | None, kill_all: bool) -> None:
             console.print("[dim]No active sessions to kill.[/dim]")
             return
 
-        console.print("\n[bold]🔥 Kill which session?[/bold]\n")
+        console.print("\n[bold]🔥 Stop which session?[/bold]\n")
         for i, s in enumerate(active, 1):
             state = get_session_info(s["name"]) or {}
             project = state.get("project_name", "")
             console.print(f"  [red]{i}[/red]. {s['name']}  project={project}")
 
         console.print()
-        choice = click.prompt("Select session to kill", type=int, default=0)
+        choice = click.prompt("Select session to stop", type=int, default=0)
         if 1 <= choice <= len(active):
             session_name = active[choice - 1]["name"]
         else:
             return
 
-    # Kill the sandbox container matching this session
+    # Stop the sandbox container(s) matching this session
     state = get_session_info(session_name) or {}
     windows = state.get("windows", {})
     for wname, winfo in windows.items():
@@ -356,12 +370,16 @@ def kill(ctx: click.Context, session_name: str | None, kill_all: bool) -> None:
         project_name = state.get("project_name", "")
         if agent and project_name:
             sandbox_name = f"{agent}-{project_name}"
-            sandbox_mgr.kill_sandbox(sandbox_name)
+            if remove:
+                sandbox_mgr.kill_sandbox(sandbox_name)
+            else:
+                sandbox_mgr.stop_sandbox(sandbox_name)
 
     # Kill the tmux session
     tmux_mgr.kill_session(session_name)
     unregister_session(session_name)
-    console.print(f"[green]✓ Killed session: {session_name}[/green]")
+    action = "removed" if remove else "stopped (sandbox preserved)"
+    console.print(f"[green]✓ Session {session_name} {action}[/green]")
 
 
 # ═══════════════════════════════════════════════════════════════════

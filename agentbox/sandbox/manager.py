@@ -371,8 +371,33 @@ class SandboxManager:
         except FileNotFoundError:
             return []
 
+    def stop_sandbox(self, name: str) -> bool:
+        """Stop a sandbox container without removing it (preserves installed agents)."""
+        container_name = f"agentbox-{name}"
+        try:
+            # Commit current state to cache image before stopping
+            try:
+                result = subprocess.run(
+                    ["docker", "inspect", "--format", "{{.Config.Labels.agentbox.agent}}", container_name],
+                    capture_output=True, text=True,
+                )
+                if result.returncode == 0:
+                    agent_id = result.stdout.strip()
+                    if agent_id:
+                        target_image = f"agentbox-{agent_id}:latest"
+                        self._commit_container_as_image(container_name, target_image)
+            except Exception:
+                pass
+
+            subprocess.run(["docker", "stop", container_name], capture_output=True, check=False)
+            console.print(f"[green]✓ Sandbox stopped:[/green] {container_name} [dim](preserved, use --rm to delete)[/dim]")
+            return True
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Failed to stop sandbox: {e.stderr}[/red]")
+            return False
+
     def kill_sandbox(self, name: str) -> bool:
-        """Stop and remove a sandbox container."""
+        """Stop and remove a sandbox container (data lost!)."""
         container_name = f"agentbox-{name}"
         try:
             subprocess.run(["docker", "stop", container_name], capture_output=True, check=False)

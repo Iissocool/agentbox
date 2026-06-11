@@ -46,9 +46,11 @@ ag run <agent_id> -p "prompt"
 ag status                        # Dashboard: all sessions, sandboxes, agents
 ag attach                        # Pick a session to attach to
 ag attach ag-myproject           # Attach to specific session
-ag kill                          # Pick a session to kill (also kills sandbox)
-ag kill ag-myproject             # Kill specific session + sandbox
-ag kill --all                    # Kill everything
+ag kill                          # Pick a session to stop (sandbox preserved)
+ag kill ag-myproject             # Stop specific session (sandbox preserved)
+ag kill --rm ag-myproject        # Stop + permanently delete sandbox data
+ag kill --all                    # Stop everything (sandboxes preserved)
+ag kill --all --rm               # Stop + delete everything
 ag history                       # View session history
 ```
 
