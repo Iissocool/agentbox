@@ -2,7 +2,6 @@
 
 import os
 import shlex
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -241,15 +240,20 @@ class WorkflowEngine:
         prompt: str,
         agent_id: str = "claude",
         project_path: str | Path | None = None,
-        use_sandbox: bool = True,
         role: str | None = None,
         attach: bool = True,
     ) -> bool:
-        """Launch an agent with project instructions injected into the prompt."""
+        """Launch an agent in sandbox with project instructions injected into the prompt."""
         path = Path(project_path or os.getcwd()).expanduser().resolve()
         agent_config = get_agent_config(self.config, agent_id)
         if not agent_config:
             console.print(f"[red]Unknown agent: {agent_id}[/red]")
+            return False
+
+        if not self.sandbox_mgr._docker_available():
+            console.print("[red]✘ Docker is not available or not running![/red]")
+            console.print("[dim]Agentbox requires Docker to run agents in sandboxes.[/dim]")
+            console.print("[dim]Start Docker Desktop or Docker daemon first.[/dim]")
             return False
 
         injected_prompt = self.inject_agents_md(prompt, path)
@@ -258,19 +262,9 @@ class WorkflowEngine:
             return False
 
         window_label = f"{role}-{agent_id}" if role else agent_id
-        if use_sandbox:
-            if not self.sandbox_mgr._docker_available():
-                console.print("[yellow]⚠ Docker is not available or not running.[/yellow]")
-                console.print("[dim]Falling back to local mode. Start Docker to use sandbox.[/dim]")
-                use_sandbox = False
-            else:
-                started = self._launch_sandbox_agent(
-                    agent_id, agent_config, session_name, path, injected_prompt, window_label, role
-                )
-        if not use_sandbox:
-            started = self._launch_local_agent(
-                agent_id, agent_config, session_name, path, injected_prompt, window_label, role
-            )
+        started = self._launch_sandbox_agent(
+            agent_id, agent_config, session_name, path, injected_prompt, window_label, role
+        )
 
         if started and attach:
             console.print("[dim]Attaching to tmux session... (Ctrl+B then D to detach)[/dim]")
@@ -314,49 +308,6 @@ class WorkflowEngine:
 
         console.print("[yellow]Skipped merge/discard.[/yellow]")
         return tests_passed
-
-    def _launch_local_agent(
-        self,
-        agent_id: str,
-        agent_config: dict[str, Any],
-        session_name: str,
-        project_path: Path,
-        prompt: str,
-        window_label: str,
-        role: str | None,
-    ) -> bool:
-        cli_name = agent_config.get("cli", agent_id)
-        if not shutil.which(cli_name):
-            console.print(f"[yellow]'{cli_name}' not found locally.[/yellow]")
-            console.print(f"[dim]Install with: {agent_config.get('install_cmd', 'N/A')}[/dim]")
-            console.print("[dim]Start Docker to use sandbox mode, or install the agent locally.[/dim]")
-            return False
-
-        cmd = self._agent_command(agent_id, agent_config, prompt)
-        window_name = self.tmux_mgr.add_agent_window(session_name, window_label, cmd, str(project_path))
-        if not window_name:
-            return False
-
-        register_window(
-            session_name=session_name,
-            window_name=window_name,
-            agent_id=agent_id,
-            role=role,
-            project_path=str(project_path),
-            project_name=project_path.name,
-            sandbox=False,
-            prompt=prompt,
-        )
-        console.print(Panel(
-            f"[green]Agent started[/green]\n\n"
-            f"Agent: [cyan]{agent_id}[/cyan]\n"
-            f"Session: [cyan]{session_name}[/cyan]\n"
-            f"Window: [cyan]{window_name}[/cyan]\n"
-            f"Mode: [magenta]local[/magenta]",
-            title="Ask Workflow",
-            border_style="green",
-        ))
-        return True
 
     def _launch_sandbox_agent(
         self,

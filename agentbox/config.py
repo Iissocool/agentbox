@@ -19,7 +19,6 @@ DEFAULT_CONFIG = {
         "auto_remove": True,
         "memory_limit": "4g",
         "cpu_limit": 2,
-        "default_local": False,
     },
     "tmux": {
         "session_prefix": "ag-",
