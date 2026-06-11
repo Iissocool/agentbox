@@ -2,6 +2,8 @@
 
 import os
 import shlex
+import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,49 @@ class AgentRunner:
         self.config = config
         self.sandbox_mgr = SandboxManager(config)
         self.tmux_mgr = TmuxManager(config)
+
+    def _window_exists(self, session_name: str, window_name: str) -> bool:
+        """Check if a tmux window exists in a session."""
+        windows = self.tmux_mgr.list_windows(session_name)
+        return any(w["name"] == window_name for w in windows)
+
+    def _window_process_alive(self, session_name: str, window_name: str) -> bool:
+        """Check if the process in a tmux window is still running (not at shell prompt)."""
+        try:
+            content = self.tmux_mgr.capture_pane(session_name, window_name, lines=5)
+            # If the pane shows a shell prompt, the process is dead
+            lines = content.strip().split("\n")
+            if not lines:
+                return False
+            last_line = lines[-1].strip()
+            # Shell prompt patterns: ends with $ or # or ❯ or >
+            if last_line.endswith(("$", "#", "❯", ">")) and len(last_line) < 80:
+                return False
+            # If pane is empty, process is dead
+            if not last_line:
+                return False
+            return True
+        except Exception:
+            return False
+
+    def _restart_window(self, session_name: str, window_name: str, command: str) -> bool:
+        """Restart the command in an existing tmux window."""
+        try:
+            target = f"{session_name}:{window_name}"
+            # Send Ctrl+C to kill any running process, then clear
+            subprocess.run(["tmux", "send-keys", "-t", target, "C-c"],
+                          capture_output=True, text=True)
+            import time
+            time.sleep(0.3)
+            # Clear the line and send the new command
+            subprocess.run(["tmux", "send-keys", "-t", target, "C-u"],
+                          capture_output=True, text=True)
+            self.tmux_mgr._send_literal_command(target, command)
+            console.print(f"[green]✓ Restarted agent in window:[/green] {window_name}")
+            return True
+        except Exception as e:
+            console.print(f"[red]Failed to restart window: {e}[/red]")
+            return False
 
     def run_agent(
         self,
@@ -56,8 +101,43 @@ class AgentRunner:
 
         display_role = role or agent_id
         window_label = f"{display_role}-{agent_id}" if role else agent_id
+        window_name = self.tmux_mgr._sanitize_name(f"sb-{window_label}")
 
         sandbox_name = f"{agent_id}-{project_name}"
+
+        # ── Check if agent window already exists and is alive ──
+        if self._window_exists(session_name, window_name):
+            if self._window_process_alive(session_name, window_name):
+                console.print(f"[green]✓ Agent '{agent_id}' is already running in {session_name}:{window_name}[/green]")
+                if attach:
+                    console.print("[dim]Attaching to tmux session... (Ctrl+B then D to detach)[/dim]")
+                    self.tmux_mgr.attach_session(session_name)
+                return True
+            else:
+                # Process is dead — restart it
+                console.print(f"[yellow]⚠ Agent '{agent_id}' window exists but process is dead, restarting...[/yellow]")
+                sandbox = self.sandbox_mgr.create_sandbox(
+                    name=sandbox_name, agent_id=agent_id, project_path=project_path,
+                )
+                if not sandbox:
+                    return False
+                run_cmd = agent_config.get("run_cmd", agent_id)
+                cmd = self._build_agent_command(agent_id, run_cmd, prompt)
+                docker_cmd = f"docker exec -it agentbox-{sandbox_name} {cmd}"
+                self._restart_window(session_name, window_name, docker_cmd)
+
+                register_window(
+                    session_name=session_name, window_name=window_name,
+                    agent_id=agent_id, role=role, project_path=project_path,
+                    project_name=project_name, sandbox=True, prompt=prompt,
+                )
+
+                if attach:
+                    console.print("[dim]Attaching to tmux session... (Ctrl+B then D to detach)[/dim]")
+                    self.tmux_mgr.attach_session(session_name)
+                return True
+
+        # ── Create new sandbox + agent window ──
         sandbox = self.sandbox_mgr.create_sandbox(
             name=sandbox_name, agent_id=agent_id, project_path=project_path,
         )
@@ -67,11 +147,12 @@ class AgentRunner:
         run_cmd = agent_config.get("run_cmd", agent_id)
         cmd = self._build_agent_command(agent_id, run_cmd, prompt)
         docker_cmd = f"docker exec -it agentbox-{sandbox_name} {cmd}"
-        window_name = self.tmux_mgr.add_agent_window(
+        new_window_name = self.tmux_mgr.add_agent_window(
             session_name, f"sb-{window_label}", docker_cmd, project_path
         )
-        if not window_name:
+        if not new_window_name:
             return False
+        window_name = new_window_name
 
         register_window(
             session_name=session_name, window_name=window_name,
