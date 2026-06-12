@@ -250,8 +250,8 @@ _style = PtStyle.from_dict({
     "scrollbar.button":                         f"bg:{GOLD}",
     # Auto-suggestion
     "auto-suggestion":                          f"{GOLD_DIM}",
-    # Bottom toolbar — transparent, font colors only
-    "bottom-toolbar":                           f"{GOLD_DIM}",
+    # Bottom toolbar — no bg, inherit terminal transparency
+    "bottom-toolbar":                           "",
 })
 
 
@@ -285,29 +285,9 @@ def run_repl(ctx: Any) -> None:
         ])
 
     def _toolbar():
-        # No bg — transparent terminal, elegant font colors
+        # Single color — clean on transparent terminals
         return FormattedText([
-            (f"{GOLD}", "  ◈ "),
-            (f"{GOLD_DIM}", "│ "),
-            (f"{GOLD_LIGHT}", "/ "),
-            (f"{SILVER}", "命令  "),
-            (f"{GOLD_DIM}", "· "),
-            (f"{GOLD_LIGHT}", "↑↓ "),
-            (f"{SILVER}", "选择  "),
-            (f"{GOLD_DIM}", "· "),
-            (f"{GOLD_LIGHT}", "↵ "),
-            (f"{SILVER}", "执行  "),
-            (f"{GOLD_DIM}", "│ "),
-            (f"{GOLD_LIGHT}", "claude "),
-            (f"{SILVER}", "启动  "),
-            (f"{GOLD_DIM}", "· "),
-            (f"{SILVER}", "提问即执行  "),
-            (f"{GOLD_DIM}", "│ "),
-            (f"{GOLD_LIGHT}", "⌃C "),
-            (f"{SILVER}", "取消  "),
-            (f"{GOLD_DIM}", "· "),
-            (f"{GOLD_LIGHT}", "/exit "),
-            (f"{SILVER}", "退出  "),
+            ("", "  ◈  / 命令  ·  ↑↓ 选择  ·  ↵ 执行  │  claude 启动  ·  提问即执行  │  ⌃C 取消  ·  /exit 退出  "),
         ])
 
     while True:
