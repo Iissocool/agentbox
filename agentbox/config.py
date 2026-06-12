@@ -1,5 +1,6 @@
 """Configuration management for agentbox."""
 
+import copy
 import os
 from pathlib import Path
 from typing import Any
@@ -109,9 +110,14 @@ def load_config() -> dict[str, Any]:
     with open(DEFAULT_CONFIG_FILE, "r") as f:
         config = yaml.safe_load(f)
 
-    # Merge with defaults for any missing keys
-    merged = DEFAULT_CONFIG.copy()
+    # Deep copy defaults so _deep_merge doesn't pollute DEFAULT_CONFIG
+    merged = copy.deepcopy(DEFAULT_CONFIG)
     _deep_merge(merged, config)
+
+    # Migrate old base_image value
+    if merged.get("sandbox", {}).get("base_image") == "ubuntu:22.04":
+        merged["sandbox"]["base_image"] = "agentbox-base:latest"
+
     return merged
 
 

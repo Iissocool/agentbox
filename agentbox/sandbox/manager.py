@@ -122,7 +122,7 @@ class SandboxManager:
         self.ensure_network()
 
         agent_config = self.config.get("agents", {}).get(agent_id, {})
-        docker_image = image or agent_config.get("docker_image", self.sandbox_config.get("base_image", "ubuntu:22.04"))
+        docker_image = image or agent_config.get("docker_image", self.sandbox_config.get("base_image", "agentbox-base:latest"))
         mount_point = self.sandbox_config.get("mount_point", "/workspace")
         memory_limit = self.sandbox_config.get("memory_limit", "4g")
         cpu_limit = self.sandbox_config.get("cpu_limit", 2)
@@ -488,6 +488,10 @@ class SandboxManager:
         dockerfile_path = template_dir / f"Dockerfile.{agent_id}"
 
         if dockerfile_path.exists():
+            # Ensure base image exists before building agent image
+            base_image = self.sandbox_config.get("base_image", "agentbox-base:latest")
+            self._ensure_base_image(base_image)
+
             console.print(f"[dim]Building {image_name} from {dockerfile_path}...[/dim]")
             try:
                 subprocess.run(

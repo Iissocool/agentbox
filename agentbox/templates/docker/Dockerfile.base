@@ -17,7 +17,9 @@ RUN apt-get update && apt-get install -y python3 python3-pip python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Go (for Go-based agents like opencode)
-RUN curl -fsSL https://go.dev/dl/go1.23.4.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+# Auto-detect architecture: amd64 or arm64 (Apple Silicon)
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://go.dev/dl/go1.23.4.linux-${ARCH}.tar.gz" | tar -C /usr/local -xzf -
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Create workspace
