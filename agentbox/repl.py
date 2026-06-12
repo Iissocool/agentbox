@@ -1,9 +1,10 @@
-"""Agentbox REPL — interactive command shell with slash-command autocomplete."""
+"""Agentbox REPL — Art Deco Morgan-style with rotating Rubik's cube."""
 
 from __future__ import annotations
 
 import os
 import sys
+import time
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -12,20 +13,110 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout.controls import BufferControl
-from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.styles import Style as PtStyle
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich.columns import Columns
+from rich.align import Align
 
 from . import __version__
 
 console = Console()
 
-# ── Slash commands with Chinese descriptions ──
+# ═══════════════════════════════════════════════════════════════════
+# Art Deco / Morgan-style color palette
+# ═══════════════════════════════════════════════════════════════════
+
+_GOLD = "#D4AF37"
+_DARK_GOLD = "#B8860B"
+_PALE_GOLD = "#F5E6CC"
+_NAVY = "#0D1B2A"
+_DARK_NAVY = "#1B2838"
+_CREAM = "#FAF0E6"
+_DEEP_RED = "#8B0000"
+_EMERALD = "#006B3C"
+
+# ═══════════════════════════════════════════════════════════════════
+# Rotating Rubik's Cube — 6 frames, isometric 3D
+# ═══════════════════════════════════════════════════════════════════
+
+# Rubik's cube face colors (bg:style)
+_FC = {
+    "B": ("bg:#0051ff fg:#ffffff bold", "██"),  # Blue
+    "G": ("bg:#00cc44 fg:#ffffff bold", "██"),  # Green
+    "Y": ("bg:#ffcc00 fg:#1a1a1a bold", "██"),  # Yellow
+    "R": ("bg:#ff2200 fg:#ffffff bold", "██"),  # Red
+    "O": ("bg:#ff6600 fg:#ffffff bold", "██"),  # Orange
+    "W": ("bg:#f0f0f0 fg:#1a1a1a bold", "██"),  # White
+}
+
+# Cube rotation sequence: (top, left, right) face colors
+_CUBE_ROTATION = [
+    ("B", "R", "G"),  # Blue top, Red left, Green right
+    ("R", "Y", "B"),  # Red top, Yellow left, Blue right
+    ("Y", "W", "R"),  # Yellow top, White left, Red right
+    ("W", "O", "Y"),  # White top, Orange left, Yellow right
+    ("O", "G", "W"),  # Orange top, Green left, White right
+    ("G", "B", "O"),  # Green top, Blue left, Orange right
+]
+
+# Frame border style
+_CB = f"bold {_GOLD}"  # cube border
+
+
+def _build_cube_frame(top: str, left: str, right: str) -> list[tuple[str, str]]:
+    """Build FormattedText tuples for one isometric cube frame.
+
+    Layout:
+       ╱TT╲       T = top face (2 blocks)
+      ╱LLTT╲      L = left face (2 blocks)
+      ╲LLRR╱      R = right face (2 blocks)
+       ╲RR╱
+    """
+    t = _FC[top]
+    l = _FC[left]
+    r = _FC[right]
+    return [
+        ("", "  "), (_CB, "╱"), t, t, (_CB, "╲"), ("", "  "), ("", "\n"),
+        ("", " "), (_CB, "╱"), l, l, t, t, (_CB, "╲"), ("", "\n"),
+        ("", " "), (_CB, "╲"), l, l, r, r, (_CB, "╱"), ("", "  "), ("", "\n"),
+        ("", "  "), (_CB, "╲"), r, r, (_CB, "╱"), ("", "  "),
+    ]
+
+
+def _get_cube_prompt(project_name: str) -> FormattedText:
+    """Get the full prompt text with current rotating cube frame."""
+    frame_idx = int(time.time() * 2.5) % len(_CUBE_ROTATION)
+    top, left, right = _CUBE_ROTATION[frame_idx]
+    cube = _build_cube_frame(top, left, right)
+
+    parts = list(cube)
+    # Separator + prompt line
+    parts.extend([
+        ("", "\n"),
+        (f"bold {_GOLD}", "╭─"),
+        ("", " "),
+        (f"bold {_DARK_GOLD}", "◈"),
+        ("", " "),
+        (f"bold {_PALE_GOLD}", project_name),
+        ("", " "),
+        (f"{_DARK_GOLD}", "━━"),
+        ("", " "),
+        (f"bold {_GOLD}", "╯"),
+        ("", "\n"),
+        (f"bold {_GOLD}", "╰"),
+        ("", " "),
+        (f"bold {_GOLD}", "›"),
+        ("", " "),
+    ])
+    return FormattedText(parts)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Slash commands with Chinese descriptions
+# ═══════════════════════════════════════════════════════════════════
 
 SLASH_COMMANDS = [
     # (command, description_zh, category, usage_hint)
@@ -104,39 +195,54 @@ def _get_app():
     return get_app()
 
 
+# ═══════════════════════════════════════════════════════════════════
+# Art Deco Splash Screen — Morgan Style
+# ═══════════════════════════════════════════════════════════════════
+
 def _print_splash() -> None:
-    """Print the Agentbox splash screen with elegant styling."""
-    # ASCII art
-    splash_lines = [
-        "     _                 _           _       ",
-        "    / \\   __ _ ___ ___| |__   __ _(_)_ __  ",
-        "   / _ \\ / _` / __/ __| '_ \\ / _` | | '_ \\ ",
-        "  / ___ \\ (_| \\__ \\__ \\ |_) | (_| | | | | |",
-        " /_/   \\_\\__,_|___/___/_.__/ \\__,_|_|_| |_|",
-    ]
+    """Print the Agentbox splash screen in Art Deco Morgan style."""
+    g, dg = _GOLD, _DARK_GOLD
 
     console.print()
-    for line in splash_lines:
-        console.print(f"  [bold cyan]{line}[/bold cyan]")
+    # Top stepped border — Art Deco ziggurat frame
+    console.print(f"  [{g}]         ╔═══════════════════════════════════════════╗[/]")
+    console.print(f"  [{g}]       ╔═╩═════════════════════════════════════════╩═╗[/]")
+    console.print(f"  [{g}]     ╔═╩═════════════════════════════════════════════╩═╗[/]")
+    console.print(f"  [{g}]     ║[/]                                           [{g}]║[/]")
+
+    # Title with diamond ornaments
+    console.print(f"  [{g}]     ║[/]    [{dg}]◈[/]   [bold {g}]A G E N T B O X[/]   [{dg}]◈[/]                [{g}]║[/]")
+
+    # Decorative separator
+    console.print(f"  [{g}]     ║[/]    [{dg}]━━━━━━━━━━━━━━━━━━━━━━━━━[/]                [{g}]║[/]")
+
+    # Subtitle
+    console.print(f"  [{g}]     ║[/]    [{_CREAM} italic]AI Agent Orchestration Sandbox[/]             [{g}]║[/]")
+    console.print(f"  [{g}]     ║[/]    [{_PALE_GOLD} dim]v{__version__}[/]                                [{g}]║[/]")
+
+    console.print(f"  [{g}]     ║[/]                                           [{g}]║[/]")
+
+    # Bottom stepped border
+    console.print(f"  [{g}]     ╚═════════════════════════════════════════════╝[/]")
+    console.print(f"  [{g}]       ╚═══════════════════════════════════════════╝[/]")
+    console.print(f"  [{g}]         ╚═══════════════════════════════════════════╝[/]")
 
     console.print()
-    console.print(f"  [bold white]Agentbox[/bold white] [dim]v{__version__}[/dim]  [dim]·[/dim]  [italic]AI Agent 编排沙盒[/italic]")
-    console.print()
-    console.print("  ──────────────────────────────────────────")
-    console.print()
-    console.print(f"  [dim]💡[/dim]  输入 [bold cyan]/[/bold cyan] 查看所有命令  [dim]·[/dim]  [bold cyan]↑↓[/bold cyan] 选择  [dim]·[/dim]  [bold cyan]↵[/bold cyan] 补全  [dim]·[/dim]  再 [bold cyan]↵[/bold cyan] 执行")
-    console.print(f"  [dim]💡[/dim]  直接输入 [bold]claude[/bold] 启动 Agent  [dim]·[/dim]  输入问题自动提问")
-    console.print(f"  [dim]💡[/dim]  [bold]Ctrl+C[/bold] 取消  [dim]·[/dim]  [bold]Ctrl+D[/bold] 或 [bold cyan]/exit[/bold cyan] 退出")
+
+    # Help hints
+    console.print(f"  [{_CREAM}]◈[/]  输入 [bold {g}]/[/] 查看所有命令  [{dg}]·[/]  [bold {g}]↑↓[/] 选择  [{dg}]·[/]  [bold {g}]↵[/] 补全  [{dg}]·[/]  再 [bold {g}]↵[/] 执行")
+    console.print(f"  [{_CREAM}]◈[/]  直接输入 [bold {g}]claude[/] 启动 Agent  [{dg}]·[/]  输入问题自动提问")
+    console.print(f"  [{_CREAM}]◈[/]  [bold {g}]Ctrl+C[/] 取消  [{dg}]·[/]  [bold {g}]Ctrl+D[/] 或 [bold {g}]/exit[/] 退出")
     console.print()
 
 
 def _print_help() -> None:
-    """Print elegant help."""
+    """Print Art Deco styled help."""
     console.print()
     console.print(Panel(
-        "[bold cyan]🧊 Agentbox 命令列表[/bold cyan]\n\n"
-        "[dim]输入 / 前缀触发补全 · ↑↓ 选择 · 回车补全 · 再回车执行[/dim]",
-        border_style="dim",
+        f"[bold {_GOLD}]◈  Agentbox 命令列表  ◈[/]\n\n"
+        f"[{_CREAM} dim]输入 / 前缀触发补全 · ↑↓ 选择 · 回车补全 · 再回车执行[/]",
+        border_style=_DARK_GOLD,
         padding=(0, 2),
     ))
 
@@ -145,16 +251,20 @@ def _print_help() -> None:
         categories.setdefault(cat, []).append((cmd, desc, usage))
 
     for cat, cmds in categories.items():
-        console.print(f"\n  [bold]{cat}[/bold]")
-        console.print("  " + "─" * 42)
+        console.print(f"\n  [bold {_GOLD}]{cat}[/]")
+        console.print(f"  [{_DARK_GOLD}]{'─' * 44}[/]")
         for cmd, desc, usage in cmds:
-            cmd_display = f"[cyan]{cmd}[/cyan]"
+            cmd_display = f"[{_GOLD}]{cmd}[/]"
             if usage:
-                cmd_display += f" [dim]{usage}[/dim]"
-            console.print(f"  {cmd_display:<30} {desc}")
+                cmd_display += f" [{_CREAM} dim]{usage}[/]"
+            console.print(f"  {cmd_display:<30} [{_PALE_GOLD}]{desc}[/]")
 
     console.print()
 
+
+# ═══════════════════════════════════════════════════════════════════
+# Command execution
+# ═══════════════════════════════════════════════════════════════════
 
 def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
     """Parse and execute a slash command. Returns False if should quit."""
@@ -206,7 +316,7 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
         if not team_id:
             teams = list_teams(config)
             for i, t in enumerate(teams, 1):
-                console.print(f"  {i}. [cyan]{t['id']}[/cyan] — {t.get('description', '')}")
+                console.print(f"  {i}. [{_GOLD}]{t['id']}[/] — {t.get('description', '')}")
             team_id = click_prompt("选择团队", default="dev-team")
         runner.run_team(team_id, project_path)
     elif cmd_name == "compare":
@@ -267,10 +377,10 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
     elif cmd_name == "help":
         _print_help()
     elif cmd_name in ("exit", "quit", "q"):
-        console.print("\n  [dim]👋 再见！[/dim]\n")
+        console.print(f"\n  [{_CREAM} dim]👋 再见！[/]")
         return False
     else:
-        console.print(f"\n  [red]✘ 未知命令:[/red] {cmd}  [dim]输入 / 查看所有命令[/dim]\n")
+        console.print(f"\n  [{_DEEP_RED}]✘ 未知命令:[/] {cmd}  [{_CREAM} dim]输入 / 查看所有命令[/]\n")
 
     return True
 
@@ -284,19 +394,27 @@ def click_prompt(msg: str, default: str = "") -> str:
         return default
 
 
+# ═══════════════════════════════════════════════════════════════════
+# prompt_toolkit style — Art Deco theme
+# ═══════════════════════════════════════════════════════════════════
+
 _repl_style = PtStyle.from_dict({
-    "bottom-toolbar": "bg:#1a1a2e #888888",
-    "bottom-toolbar.text": "bg:#1a1a2e #aaaaaa",
-    "completion-menu": "bg:#1a1a2e #ffffff",
-    "completion-menu.completion": "bg:#1a1a2e #ffffff",
-    "completion-menu.completion.current": "bg:#0f3460 #ffffff bold",
-    "completion-menu.meta": "bg:#16213e #888888",
-    "completion-menu.completion.current meta": "bg:#0f3460 #cccccc",
+    "bottom-toolbar": f"bg:{_NAVY} {_CREAM}",
+    "bottom-toolbar.text": f"bg:{_NAVY} {_PALE_GOLD}",
+    "completion-menu": f"bg:{_DARK_NAVY} {_CREAM}",
+    "completion-menu.completion": f"bg:{_DARK_NAVY} {_CREAM}",
+    "completion-menu.completion.current": f"bg:{_GOLD} #000000 bold",
+    "completion-menu.meta": f"bg:{_NAVY} #888888",
+    "completion-menu.completion.current meta": f"bg:{_GOLD} #1a1a1a",
 })
 
 
+# ═══════════════════════════════════════════════════════════════════
+# Main REPL loop
+# ═══════════════════════════════════════════════════════════════════
+
 def run_repl(ctx: Any) -> None:
-    """Run the interactive Agentbox REPL."""
+    """Run the interactive Agentbox REPL with Art Deco styling and rotating cube."""
     _print_splash()
 
     kb = _build_key_bindings()
@@ -308,48 +426,37 @@ def run_repl(ctx: Any) -> None:
         complete_while_typing=True,
         multiline=False,
         key_bindings=kb,
+        refresh_interval=0.4,  # Refresh for cube animation
     )
 
     project_name = os.path.basename(ctx.obj["project_path"])
 
     def _bottom_toolbar():
-        """Bottom toolbar with contextual hints."""
+        """Bottom toolbar with Art Deco styling and contextual hints."""
+        frame_idx = int(time.time() * 2.5) % len(_CUBE_ROTATION)
+        face_names = {"B": "🔵", "G": "🟢", "Y": "🟡", "R": "🔴", "O": "🟠", "W": "⚪"}
+        top, left, right = _CUBE_ROTATION[frame_idx]
+        cube_icon = f"{face_names[top]}{face_names[left]}{face_names[right]}"
+
         return FormattedText([
-            ("class:bottom-toolbar.text", "  💡 输入 "),
-            ("class:bottom-toolbar.text bold", "/"),
-            ("class:bottom-toolbar.text", " 查看命令  ·  "),
-            ("class:bottom-toolbar.text bold", "↑↓"),
-            ("class:bottom-toolbar.text", " 选择  ·  "),
-            ("class:bottom-toolbar.text bold", "↵"),
-            ("class:bottom-toolbar.text", " 补全  ·  再 "),
-            ("class:bottom-toolbar.text bold", "↵"),
-            ("class:bottom-toolbar.text", " 执行  ·  "),
-            ("class:bottom-toolbar.text bold", "/exit"),
-            ("class:bottom-toolbar.text", " 退出"),
+            (f"bg:{_NAVY} {_PALE_GOLD}", f"  ◈ {cube_icon} "),
+            (f"bg:{_NAVY} {_CREAM}", "输入 "),
+            (f"bg:{_NAVY} bold {_GOLD}", "/"),
+            (f"bg:{_NAVY} {_CREAM}", " 查看命令  ·  "),
+            (f"bg:{_NAVY} bold {_GOLD}", "↑↓"),
+            (f"bg:{_NAVY} {_CREAM}", " 选择  ·  "),
+            (f"bg:{_NAVY} bold {_GOLD}", "↵"),
+            (f"bg:{_NAVY} {_CREAM}", " 补全  ·  再 "),
+            (f"bg:{_NAVY} bold {_GOLD}", "↵"),
+            (f"bg:{_NAVY} {_CREAM}", " 执行  ·  "),
+            (f"bg:{_NAVY} bold {_GOLD}", "/exit"),
+            (f"bg:{_NAVY} {_CREAM}", " 退出  "),
         ])
 
     while True:
         try:
-            # Elegant prompt with box-drawing style
-            prompt_text = FormattedText([
-                ("bold cyan", "╭─"),
-                ("", " "),
-                ("bold cyan", "🧊"),
-                ("", " "),
-                ("bold green", project_name),
-                ("", " "),
-                ("dim cyan", "──"),
-                ("", " "),
-                ("bold cyan", "╯"),
-                ("", "\n"),
-                ("bold cyan", "╰"),
-                ("", " "),
-                ("bold yellow", "›"),
-                ("", " "),
-            ])
-
             user_input = session.prompt(
-                prompt_text,
+                lambda: _get_cube_prompt(project_name),
                 bottom_toolbar=_bottom_toolbar,
                 style=_repl_style,
             )
@@ -380,15 +487,15 @@ def run_repl(ctx: Any) -> None:
                     engine.ask(prompt=user_input, agent_id="claude", project_path=ctx.obj["project_path"])
 
         except KeyboardInterrupt:
-            console.print("\n  [dim]按 Ctrl+D 或输入 /exit 退出[/dim]")
+            console.print(f"\n  [{_CREAM} dim]按 Ctrl+D 或输入 /exit 退出[/]")
             continue
         except EOFError:
-            console.print("\n  [dim]👋 再见！[/dim]\n")
+            console.print(f"\n  [{_CREAM} dim]👋 再见！[/]\n")
             break
         except Exception as e:
             # Catch ALL exceptions — REPL never crashes out
-            console.print(f"\n  [red]⚠ 错误:[/red] {e}")
-            console.print("  [dim]REPL 已恢复，输入 /exit 退出[/dim]\n")
+            console.print(f"\n  [{_DEEP_RED}]⚠ 错误:[/] {e}")
+            console.print(f"  [{_CREAM} dim]REPL 已恢复，输入 /exit 退出[/]\n")
             # Ensure terminal is in a sane state
             try:
                 import subprocess
