@@ -1,14 +1,14 @@
-"""Agentbox REPL — Frosted glass tech style."""
+"""Agentbox REPL — Frosted glass tech style with box input."""
 
 from __future__ import annotations
 
 import os
+import shutil
 from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -23,13 +23,12 @@ from . import __version__
 
 console = Console()
 
-# ── Frosted glass palette (comfortable on dark transparent terminals) ──
+# ── Frosted glass palette ──
 AC = "#5EEAD4"      # Soft teal accent
 AB = "#7DD3FC"      # Sky blue
 AD = "#94A3B8"      # Slate gray (dim text)
 AM = "#64748B"      # Muted slate
-ABG = "#0d1117"     # Near-black (toolbar bg, blends with transparent terminal)
-ABD = "#21262d"     # Subtle border
+ABG = "#0d1117"     # Near-black (toolbar bg)
 AW = "#CBD5E1"      # Light text
 AH = "#38BDF8"      # Highlight blue
 
@@ -128,18 +127,10 @@ def _help() -> None:
     table.add_column("desc", style=AW, min_width=24, no_wrap=True)
     table.add_column("cat", style=AM, min_width=8, no_wrap=True)
 
-    cats: dict[str, list] = {}
     for cmd, desc, cat, usage in _CMDS:
-        cats.setdefault(cat or "Other", []).append((cmd, desc, usage))
+        c = f"{cmd} {usage}".strip() if usage else cmd
+        table.add_row(c, desc, cat or "Other")
 
-    for cat, cmds in cats.items():
-        for cmd, desc, usage in cmds:
-            c = f"{cmd} {usage}".strip() if usage else cmd
-            table.add_row(c, desc, cat)
-
-    console.print(Panel(
-        f"[bold {AC}]Commands[/]",
-        border_style=AM, padding=(0, 2)))
     console.print(table)
     console.print()
 
@@ -217,7 +208,7 @@ def _exec(ctx: Any, raw: str) -> bool:
     return True
 
 
-# ── prompt_toolkit style ──
+# ── prompt_toolkit style — rounded table look ──
 _style = PtStyle.from_dict({
     "bottom-toolbar": f"bg:{ABG} {AD}",
     "completion-menu": f"bg:#0d1117 {AW}",
@@ -231,6 +222,24 @@ _style = PtStyle.from_dict({
 })
 
 
+# ── Box prompt helpers ──
+def _make_top_border(project: str) -> str:
+    """Full-width top border: ╭─ ◈ project ────╮"""
+    w = shutil.get_terminal_size().columns
+    header = f"╭─ ◈ {project} "
+    # visual_len: count actual display columns
+    # ╭ = 1, ─ = 1 each, ◈ = 2 (wide char), spaces = 1 each
+    vis_len = 1 + 1 + 1 + 1 + 2 + 1 + len(project) + 1  # ╭─ ◈ project_
+    fill = max(1, w - vis_len - 1)  # -1 for ╮
+    return header + "─" * fill + "╮"
+
+
+def _make_bottom_border() -> str:
+    """Full-width bottom border: ╰──────────────╯"""
+    w = shutil.get_terminal_size().columns
+    return "╰" + "─" * max(1, w - 2) + "╯"
+
+
 # ── Main REPL ──
 def run_repl(ctx: Any) -> None:
     _splash()
@@ -240,22 +249,21 @@ def run_repl(ctx: Any) -> None:
         completer=_Completer(),
         auto_suggest=AutoSuggestFromHistory(),
         complete_while_typing=True,
-        complete_style=CompleteStyle.MULTI_COLUMN,
         key_bindings=_key_bindings(),
     )
 
     project = os.path.basename(ctx.obj["project_path"])
 
     def _prompt():
+        top = _make_top_border(project)
         return FormattedText([
-            (f"bold {AC}", "╭─"),
-            ("", " "),
-            (f"{AB}", f"◈ {project}"),
-            ("", " "),
-            (f"bold {AC}", "──╯"),
-            ("", "\n"),
-            (f"bold {AC}", "╰ "),
-            (f"bold {AC}", "› "),
+            (f"{AM}", f"{top}\n"),
+            (f"{AM}", "│ "),
+        ])
+
+    def _rprompt():
+        return FormattedText([
+            (f"{AM}", " │"),
         ])
 
     def _toolbar():
@@ -276,7 +284,11 @@ def run_repl(ctx: Any) -> None:
 
     while True:
         try:
-            user_input = session.prompt(_prompt, bottom_toolbar=_toolbar, style=_style)
+            user_input = session.prompt(
+                _prompt, rprompt=_rprompt,
+                bottom_toolbar=_toolbar, style=_style)
+            # Print bottom border after input
+            console.print(f"  [{AM}]{_make_bottom_border()}[/]")
             if not user_input or not user_input.strip():
                 continue
             user_input = user_input.strip()
@@ -299,11 +311,13 @@ def run_repl(ctx: Any) -> None:
                         project_path=ctx.obj["project_path"])
 
         except KeyboardInterrupt:
-            console.print()
+            console.print(f"  [{AM}]{_make_bottom_border()}[/]")
         except EOFError:
+            console.print(f"  [{AM}]{_make_bottom_border()}[/]")
             console.print(f"\n  [{AM}]Bye.[/]\n")
             break
         except Exception as e:
+            console.print(f"  [{AM}]{_make_bottom_border()}[/]")
             console.print(f"\n  [{AH}]⚠[/] {e}")
             console.print(f"  [{AD}]REPL 已恢复[/]\n")
             try:
