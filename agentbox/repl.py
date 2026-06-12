@@ -250,8 +250,8 @@ _style = PtStyle.from_dict({
     "scrollbar.button":                         f"bg:{GOLD}",
     # Auto-suggestion
     "auto-suggestion":                          f"{GOLD_DIM}",
-    # Bottom toolbar — no bg, inherit terminal transparency
-    "bottom-toolbar":                           "",
+    # Bottom toolbar — premium gold on transparent
+    "bottom-toolbar":                           f"bold {GOLD}",
 })
 
 
@@ -285,9 +285,10 @@ def run_repl(ctx: Any) -> None:
         ])
 
     def _toolbar():
-        # Single color — clean on transparent terminals
+        # Single gold — elegant hierarchy through spacing, not color
+        G = f"bold {GOLD}"
         return FormattedText([
-            ("", "  ◈  / 命令  ·  ↑↓ 选择  ·  ↵ 执行  │  claude 启动  ·  提问即执行  │  ⌃C 取消  ·  /exit 退出  "),
+            (G, "  ◈  / 命令 · ↑↓ 选择 · ↵ 执行   ❖   claude 启动 · 提问即执行   ❖   ⌃C 取消 · /exit 退出  "),
         ])
 
     while True:
