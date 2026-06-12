@@ -77,6 +77,7 @@ class AgentRunner:
         prompt: str | None = None,
         attach: bool = True,
         role: str | None = None,
+        with_shell: bool = False,
     ) -> bool:
         """Run a single agent in a Docker sandbox via tmux."""
         agent_config = get_agent_config(self.config, agent_id)
@@ -160,7 +161,15 @@ class AgentRunner:
             project_name=project_name, sandbox=True, prompt=prompt,
         )
 
+        # Add companion shell if requested
+        if with_shell:
+            self.add_companion_shell(
+                agent_id, session_name, sandbox_name,
+                project_path, project_name,
+            )
+
         role_info = f"Role:      [yellow]{role}[/yellow]\n" if role else ""
+        shell_info = f"Shell:     [green]shell-{agent_id}[/green] (Ctrl+B n/p 切换)\n" if with_shell else ""
         console.print(Panel(
             f"[green]🚀 {agent_config.get('name', agent_id)} started in sandbox![/green]\n\n"
             f"Session:   [cyan]{session_name}[/cyan]\n"
@@ -168,7 +177,7 @@ class AgentRunner:
             f"Container: [cyan]{sandbox.get('name', 'N/A')}[/cyan]\n"
             f"Path:      [dim]{project_path}[/dim]\n"
             f"Mode:      [magenta]sandbox[/magenta]\n"
-            f"{role_info}",
+            f"{shell_info}{role_info}",
             title=f"Agent: {agent_id}" + (f" ({role})" if role else ""),
             border_style="blue",
         ))
@@ -396,6 +405,120 @@ class AgentRunner:
 
         self.tmux_mgr.attach_session(session_name)
         return True
+
+    def run_shell(
+        self,
+        agent_id: str,
+        project_path: str | None = None,
+        attach: bool = True,
+    ) -> bool:
+        """Open a bash shell in an agent's sandbox container.
+
+        If the agent's sandbox exists, opens a shell in it.
+        If not, creates the sandbox first, then opens a shell.
+        The shell window is added to the agent's existing tmux session
+        (or a new one is created).
+        """
+        if not self.sandbox_mgr._docker_available():
+            console.print("[red]✘ Docker is not available or not running![/red]")
+            return False
+
+        if not project_path:
+            project_path = os.getcwd()
+        project_name = Path(project_path).name
+
+        sandbox_name = f"{agent_id}-{project_name}"
+        container_name = f"agentbox-{sandbox_name}"
+
+        # Ensure sandbox exists and is running
+        sandbox = self.sandbox_mgr.create_sandbox(
+            name=sandbox_name, agent_id=agent_id, project_path=project_path,
+        )
+        if not sandbox:
+            return False
+
+        # Find or create tmux session
+        session_name = self.tmux_mgr.create_session(project_name, project_path)
+        if not session_name:
+            return False
+
+        # Check if shell window already exists
+        shell_window_name = self.tmux_mgr._sanitize_name(f"shell-{agent_id}")
+        if self._window_exists(session_name, shell_window_name):
+            console.print(f"[green]✓ Shell for '{agent_id}' already exists in {session_name}:{shell_window_name}[/green]")
+            if attach:
+                console.print("[dim]Attaching to tmux session... (Ctrl+B then D to detach, Ctrl+B n/p switch windows)[/dim]")
+                self.tmux_mgr.attach_session(session_name)
+            return True
+
+        # Create shell window: docker exec -it <container> bash
+        mount_point = self.config.get("sandbox", {}).get("mount_point", "/workspace")
+        shell_cmd = f"docker exec -it {container_name} bash"
+        new_window_name = self.tmux_mgr.add_agent_window(
+            session_name, f"shell-{agent_id}", shell_cmd, project_path
+        )
+
+        if new_window_name:
+            register_window(
+                session_name=session_name, window_name=new_window_name,
+                agent_id=agent_id, role="shell", project_path=project_path,
+                project_name=project_name, sandbox=True, prompt=None,
+            )
+
+        console.print(Panel(
+            f"[green]🐚 Shell opened for {agent_id} sandbox![/green]\n\n"
+            f"Session:   [cyan]{session_name}[/cyan]\n"
+            f"Window:    [cyan]{new_window_name or shell_window_name}[/cyan]\n"
+            f"Container: [cyan]{container_name}[/cyan]\n"
+            f"Path:      [dim]{mount_point}[/dim]\n\n"
+            f"[dim]Ctrl+B n  下一个窗口 (agent)[/dim]\n"
+            f"[dim]Ctrl+B p  上一个窗口[//dim]\n"
+            f"[dim]Ctrl+B D  脱离会话[/dim]",
+            title=f"Shell: {agent_id}",
+            border_style="green",
+        ))
+
+        if attach:
+            console.print("[dim]Attaching to tmux session...[/dim]")
+            self.tmux_mgr.attach_session(session_name)
+
+        return True
+
+    def add_companion_shell(
+        self,
+        agent_id: str,
+        session_name: str,
+        sandbox_name: str,
+        project_path: str,
+        project_name: str,
+    ) -> str | None:
+        """Add a companion shell window for an agent in the same tmux session.
+
+        This allows the user to quickly switch between the agent CLI
+        and a bash shell in the same container using Ctrl+B n/p.
+        """
+        shell_window_name = self.tmux_mgr._sanitize_name(f"shell-{agent_id}")
+
+        # Don't create if already exists
+        if self._window_exists(session_name, shell_window_name):
+            return shell_window_name
+
+        container_name = f"agentbox-{sandbox_name}"
+        mount_point = self.config.get("sandbox", {}).get("mount_point", "/workspace")
+        shell_cmd = f"docker exec -it {container_name} bash"
+
+        new_window_name = self.tmux_mgr.add_agent_window(
+            session_name, f"shell-{agent_id}", shell_cmd, project_path
+        )
+
+        if new_window_name:
+            register_window(
+                session_name=session_name, window_name=new_window_name,
+                agent_id=agent_id, role="shell", project_path=project_path,
+                project_name=project_name, sandbox=True, prompt=None,
+            )
+
+        return new_window_name
 
     def list_available_agents(self) -> None:
         """Print a table of all configured agents and their local availability."""

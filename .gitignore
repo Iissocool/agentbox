@@ -30,3 +30,4 @@ config/local.yaml
 
 # Generated
 agentbox/agentbox/workflow/_gen_core.py
+.git_disabled

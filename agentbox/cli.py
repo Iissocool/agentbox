@@ -286,11 +286,12 @@ def _make_agent_command(agent_id: str):
     """Factory to create agent shortcut commands."""
     @click.option("-p", "--prompt", default=None, help="Prompt to send")
     @click.option("-r", "--role", default=None, help="Role label (e.g., 'planner', 'coder')")
+    @click.option("--with-shell", is_flag=True, help="Also open a companion shell window in the sandbox")
     @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
     @click.pass_context
-    def agent_cmd(ctx: click.Context, prompt: str | None, role: str | None, no_attach: bool) -> None:
+    def agent_cmd(ctx: click.Context, prompt: str | None, role: str | None, with_shell: bool, no_attach: bool) -> None:
         runner = AgentRunner(ctx.obj["config"])
-        runner.run_agent(agent_id, ctx.obj["project_path"], prompt, attach=not no_attach, role=role)
+        runner.run_agent(agent_id, ctx.obj["project_path"], prompt, attach=not no_attach, role=role, with_shell=with_shell)
     return agent_cmd
 
 # Register agent shortcut commands
@@ -318,12 +319,50 @@ def slash_cmd(ctx: click.Context) -> None:
 @click.argument("agent_id")
 @click.option("-p", "--prompt", default=None, help="Prompt to send")
 @click.option("-r", "--role", default=None, help="Role label")
+@click.option("--with-shell", is_flag=True, help="Also open a companion shell window in the sandbox")
 @click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
 @click.pass_context
-def run(ctx: click.Context, agent_id: str, prompt: str | None, role: str | None, no_attach: bool) -> None:
+def run(ctx: click.Context, agent_id: str, prompt: str | None, role: str | None, with_shell: bool, no_attach: bool) -> None:
     """🚀 Run any configured agent by ID."""
     runner = AgentRunner(ctx.obj["config"])
-    runner.run_agent(agent_id, ctx.obj["project_path"], prompt, attach=not no_attach, role=role)
+    runner.run_agent(agent_id, ctx.obj["project_path"], prompt, attach=not no_attach, role=role, with_shell=with_shell)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Shell — ag shell <agent_id>
+# ═══════════════════════════════════════════════════════════════════
+
+@main.command()
+@click.argument("agent_id", required=False)
+@click.option("--no-attach", is_flag=True, help="Don't attach to tmux session")
+@click.pass_context
+def shell(ctx: click.Context, agent_id: str | None, no_attach: bool) -> None:
+    """🐚 Open a bash shell in an agent's sandbox container.
+
+    \b
+    This opens a bash shell inside the agent's Docker container,
+    allowing you to inspect files, edit code, and run commands
+    in the same environment the agent operates in.
+
+    \b
+    Examples:
+      ag shell claude       Open shell in Claude's sandbox
+      ag shell codex        Open shell in Codex's sandbox
+      ag shell              Pick agent interactively
+
+    \b
+    Tip: Use ag claude --with-shell to auto-create a companion
+    shell window when launching an agent. Switch between windows
+    with Ctrl+B n (next) and Ctrl+B p (previous).
+    """
+    config = ctx.obj["config"]
+    if not agent_id:
+        agent_id = _interactive_agent_select(config)
+        if not agent_id:
+            return
+
+    runner = AgentRunner(config)
+    runner.run_shell(agent_id, ctx.obj["project_path"], attach=not no_attach)
 
 
 # ═══════════════════════════════════════════════════════════════════

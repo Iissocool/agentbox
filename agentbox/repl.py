@@ -52,6 +52,7 @@ SLASH_COMMANDS = [
     ("/list",      "列出可用 Agent 和团队",           "⚙️ 配置",    ""),
     ("/config",    "查看/编辑配置",                    "⚙️ 配置",    "show|edit|reset"),
     ("/init",      "初始化项目 AGENTS.md",            "⚙️ 配置",    ""),
+    ("/shell",     "打开容器 Shell（同环境修改代码）",   "🐚 Shell",  "<agent>"),
     ("/help",      "显示帮助信息",                     "❓ 其他",    ""),
     ("/exit",      "退出 Agentbox",                   "❓ 其他",    ""),
 ]
@@ -260,6 +261,11 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
     elif cmd_name == "init":
         from .cli import init
         ctx.invoke(init)
+    elif cmd_name == "shell":
+        from .agents import AgentRunner
+        target_agent = args[0] if args else "claude"
+        runner = AgentRunner(config)
+        runner.run_shell(target_agent, project_path)
     elif cmd_name == "help":
         _print_help()
     elif cmd_name in ("exit", "quit", "q"):
