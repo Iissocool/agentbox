@@ -8,6 +8,7 @@ from typing import Any
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -68,8 +69,8 @@ class _Completer(Completer):
             return
         for cmd, desc, cat, usage in _CMDS:
             if cmd.lower().startswith(text.lower()):
-                display = f"{cmd} {usage}".strip()
-                meta = f"{cat}  {desc}" if cat else desc
+                display = f"{cmd} {usage}".strip() if usage else cmd
+                meta = f"{cat}  ·  {desc}" if cat else desc
                 yield Completion(cmd, start_position=-len(text),
                                  display=display, display_meta=meta)
 
@@ -219,11 +220,14 @@ def _exec(ctx: Any, raw: str) -> bool:
 # ── prompt_toolkit style ──
 _style = PtStyle.from_dict({
     "bottom-toolbar": f"bg:{ABG} {AD}",
-    "completion-menu": f"bg:#1a2744 {AW}",
-    "completion-menu.completion": f"bg:#1a2744 {AW}",
-    "completion-menu.completion.current": f"bg:{AC} #0F172A bold",
-    "completion-menu.meta": f"bg:#0F172A {AM}",
-    "completion-menu.completion.current meta": f"bg:{AC} #1E293B",
+    "completion-menu": f"bg:#0d1117 {AW}",
+    "completion-menu.completion": f"bg:#0d1117 {AW}",
+    "completion-menu.completion.current": f"bg:#1a3a4a #ffffff bold",
+    "completion-menu.meta": f"bg:#0d1117 {AM}",
+    "completion-menu.completion.current meta": f"bg:#1a3a4a {AC}",
+    "scrollbar": f"bg:#1a2744",
+    "scrollbar.button": f"bg:{AC}",
+    "auto-suggestion": f"{AM}",
 })
 
 
@@ -236,6 +240,7 @@ def run_repl(ctx: Any) -> None:
         completer=_Completer(),
         auto_suggest=AutoSuggestFromHistory(),
         complete_while_typing=True,
+        complete_style=CompleteStyle.MULTI_COLUMN,
         key_bindings=_key_bindings(),
     )
 
