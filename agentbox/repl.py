@@ -1,10 +1,8 @@
-"""Agentbox REPL — Cyber hacker style with rotating binary cube."""
+"""Agentbox REPL — Cyber hacker style."""
 
 from __future__ import annotations
 
-import math
 import os
-import random
 import time
 from typing import Any
 
@@ -28,87 +26,14 @@ CY = "#00FF41"      # Matrix green
 CG = "#00CC33"      # Darker green
 CD = "#009926"      # Dim green
 CB = "#001a0d"      # Dark bg
-CN = "#0a0a0a"      # Near black
 CW = "#c0c0c0"      # Light gray
-CR2 = "#FAF0E6"     # Cream (dim text)
 
-# ── 3D Binary Cube Engine ──
-# 8 vertices of a unit cube
-_VERTS = [
-    (-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
-    (-1, -1,  1), (1, -1,  1), (1, 1,  1), (-1, 1,  1),
-]
-# 12 edges (vertex index pairs)
-_EDGES = [
-    (0,1),(1,2),(2,3),(3,0),  # back face
-    (4,5),(5,6),(6,7),(7,4),  # front face
-    (0,4),(1,5),(2,6),(3,7),  # connecting edges
-]
-
-# Canvas size for cube rendering
-_CW, _CH = 10, 7
+# ── Rotating indicator ──
+_SPIN = ["◐", "◓", "◑", "◒"]
 
 
-def _rotate_y(v: tuple, angle: float) -> tuple:
-    x, y, z = v
-    c, s = math.cos(angle), math.sin(angle)
-    return (x * c + z * s, y, -x * s + z * c)
-
-
-def _rotate_x(v: tuple, angle: float) -> tuple:
-    x, y, z = v
-    c, s = math.cos(angle), math.sin(angle)
-    return (x, y * c - z * s, y * s + z * c)
-
-
-def _render_cube(angle_y: float, angle_x: float = 0.3) -> list[str]:
-    """Render a rotating wireframe cube using 0s and 1s.
-
-    Returns list of strings (lines of the cube).
-    """
-    # Rotate all vertices
-    rotated = []
-    for v in _VERTS:
-        r = _rotate_y(v, angle_y)
-        r = _rotate_x(r, angle_x)
-        rotated.append(r)
-
-    # Project to 2D (orthographic, scaled)
-    scale = 2.0
-    projected = []
-    for x, y, z in rotated:
-        px = int((x * scale) + _CW // 2)
-        py = int((-y * scale) + _CH // 2)
-        projected.append((px, py))
-
-    # Create canvas
-    canvas = [[" "] * _CW for _ in range(_CH)]
-
-    # Draw edges with binary digits
-    for i, j in _EDGES:
-        x0, y0 = projected[i]
-        x1, y1 = projected[j]
-        # Bresenham-like line drawing
-        steps = max(abs(x1 - x0), abs(y1 - y0), 1)
-        for s in range(steps + 1):
-            t = s / steps
-            x = int(x0 + (x1 - x0) * t)
-            y = int(y0 + (y1 - y0) * t)
-            if 0 <= x < _CW and 0 <= y < _CH:
-                canvas[y][x] = random.choice("01")
-
-    # Draw vertices brighter
-    for px, py in projected:
-        if 0 <= px < _CW and 0 <= py < _CH:
-            canvas[py][px] = random.choice("01")
-
-    return ["".join(row) for row in canvas]
-
-
-def _cube_frame() -> list[str]:
-    """Get current rotating cube frame."""
-    angle = time.time() * 1.2  # Rotation speed
-    return _render_cube(angle)
+def _spin() -> str:
+    return _SPIN[int(time.time() * 3) % 4]
 
 
 # ── Slash commands ──
@@ -182,11 +107,6 @@ _BANNER = r"""
 
 
 def _splash() -> None:
-    console.print()
-    # Render a static cube for splash
-    cube = _render_cube(0.8)
-    cube_lines = "\n".join(f"    {line}" for line in cube)
-    console.print(f"  [{CG}]{cube_lines}[/]")
     console.print()
     console.print(f"  [bold {CY}]{_BANNER}[/]")
     console.print(f"  [bold {CY}]Agentbox[/] [{CD}]v{__version__}[/]  [{CD}]·[/]  [{CD}]AI Agent 编排沙盒[/]")
@@ -320,12 +240,7 @@ def run_repl(ctx: Any) -> None:
     project = os.path.basename(ctx.obj["project_path"])
 
     def _prompt():
-        # Rotating binary cube as prompt header
-        cube = _cube_frame()
-        parts = []
-        for line in cube:
-            parts.append((f"{CD}", f"  {line}\n"))
-        parts.extend([
+        return FormattedText([
             (f"bold {CY}", "╭─"),
             ("", " "),
             (f"{CG}", f"⬡ {project}"),
@@ -335,14 +250,10 @@ def run_repl(ctx: Any) -> None:
             (f"bold {CY}", "╰ "),
             (f"bold {CY}", "› "),
         ])
-        return FormattedText(parts)
 
     def _toolbar():
-        cube = _cube_frame()
-        # Show a single-line mini cube in toolbar
-        mini = cube[len(cube) // 2]  # Middle line of cube
         return FormattedText([
-            (f"bg:{CB} {CD}", f"  {mini}  "),
+            (f"bg:{CB} {CD}", f"  ◈ {_spin()}  "),
             (f"bg:{CB} {CW}", "输入 "),
             (f"bg:{CB} bold {CY}", "/"),
             (f"bg:{CB} {CW}", " 命令  ·  "),
