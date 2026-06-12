@@ -274,10 +274,8 @@ def main(ctx: click.Context, project_path: str | None) -> None:
     ctx.obj["config"] = load_config()
 
     if ctx.invoked_subcommand is None:
-        config = ctx.obj["config"]
-        choice = _interactive_command_palette(config)
-        if choice:
-            _execute_palette_choice(ctx, choice)
+        from .repl import run_repl
+        run_repl(ctx)
 
 
 # ═══════════════════════════════════════════════════════════════════
