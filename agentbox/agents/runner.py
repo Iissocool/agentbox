@@ -58,7 +58,6 @@ class AgentRunner:
             # Send Ctrl+C to kill any running process, then clear
             subprocess.run(["tmux", "send-keys", "-t", target, "C-c"],
                           capture_output=True, text=True)
-            import time
             time.sleep(0.3)
             # Clear the line and send the new command
             subprocess.run(["tmux", "send-keys", "-t", target, "C-u"],
@@ -112,7 +111,7 @@ class AgentRunner:
                 console.print(f"[green]✓ Agent '{agent_id}' is already running in {session_name}:{window_name}[/green]")
                 if attach:
                     console.print("[dim]Attaching to tmux session... (Ctrl+B then D to detach)[/dim]")
-                    self.tmux_mgr.attach_session(session_name)
+                    self.tmux_mgr.attach_session(session_name, window_name=window_name)
                 return True
             else:
                 # Process is dead — restart it
@@ -134,8 +133,9 @@ class AgentRunner:
                 )
 
                 if attach:
+                    time.sleep(0.3)
                     console.print("[dim]Attaching to tmux session... (Ctrl+B then D to detach)[/dim]")
-                    self.tmux_mgr.attach_session(session_name)
+                    self.tmux_mgr.attach_session(session_name, window_name=window_name)
                 return True
 
         # ── Create new sandbox + agent window ──
@@ -183,8 +183,11 @@ class AgentRunner:
         ))
 
         if attach:
+            # Brief pause to let the agent command initialize in tmux
+            # before attaching (avoids terminal state corruption on first run)
+            time.sleep(0.5)
             console.print("[dim]Attaching to tmux session... (Ctrl+B then D to detach)[/dim]")
-            self.tmux_mgr.attach_session(session_name)
+            self.tmux_mgr.attach_session(session_name, window_name=window_name)
 
         return True
 
@@ -251,6 +254,7 @@ class AgentRunner:
                 )
 
         if attach:
+            time.sleep(0.3)
             console.print("[dim]Attaching to tmux session... (Ctrl+B then D to detach)[/dim]")
             self.tmux_mgr.attach_session(session_name)
         return True
@@ -322,6 +326,7 @@ class AgentRunner:
                 )
 
         if attach:
+            time.sleep(0.3)
             console.print("[dim]Attaching to tmux session... (Ctrl+B then D to detach)[/dim]")
             self.tmux_mgr.attach_session(session_name)
         return True
@@ -403,6 +408,7 @@ class AgentRunner:
             title="Compare Mode", border_style="magenta",
         ))
 
+        time.sleep(0.3)
         self.tmux_mgr.attach_session(session_name)
         return True
 
@@ -479,8 +485,9 @@ class AgentRunner:
         ))
 
         if attach:
+            time.sleep(0.3)
             console.print("[dim]Attaching to tmux session...[/dim]")
-            self.tmux_mgr.attach_session(session_name)
+            self.tmux_mgr.attach_session(session_name, window_name=new_window_name or shell_window_name)
 
         return True
 

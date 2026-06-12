@@ -139,7 +139,7 @@ class TmuxManager:
             console.print(f"[red]Failed to split pane: {e.stderr}[/red]")
             return False
 
-    def attach_session(self, session_name: str) -> int:
+    def attach_session(self, session_name: str, window_name: str | None = None) -> int:
         """Attach to a tmux session.
 
         Uses subprocess.run so that after detaching (Ctrl+B D),
@@ -150,9 +150,20 @@ class TmuxManager:
         - After detach: restore terminal again for prompt_toolkit
         """
         try:
-            # Restore terminal to sane state before attaching
-            # (prompt_toolkit may leave it in raw mode)
-            subprocess.run(["stty", "sane"], check=False)
+            # Aggressively restore terminal to sane state before attaching
+            # (prompt_toolkit may leave it in raw mode, and long Docker builds
+            # can corrupt terminal state)
+            os.system("stty sane 2>/dev/null")
+            # Small delay to let terminal state settle
+            import time
+            time.sleep(0.1)
+
+            # If a specific window is requested, select it before attaching
+            if window_name:
+                subprocess.run(
+                    ["tmux", "select-window", "-t", f"{session_name}:{window_name}"],
+                    capture_output=True, text=True, check=False,
+                )
 
             if os.environ.get("TMUX"):
                 # Already inside tmux — switch client instead of nesting
@@ -161,14 +172,15 @@ class TmuxManager:
                 result = subprocess.run(["tmux", "attach-session", "-t", session_name])
 
             # Restore terminal again after detaching from tmux
-            subprocess.run(["stty", "sane"], check=False)
+            os.system("stty sane 2>/dev/null")
+            time.sleep(0.05)
             return result.returncode
         except FileNotFoundError:
             console.print("[red]tmux not found[/red]")
             return 1
         except Exception as e:
             # Ensure terminal is restored even on error
-            subprocess.run(["stty", "sane"], check=False)
+            os.system("stty sane 2>/dev/null")
             console.print(f"[red]Failed to attach: {e}[/red]")
             return 1
 
