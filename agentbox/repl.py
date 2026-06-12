@@ -1,9 +1,8 @@
-"""Agentbox REPL — Frosted glass tech style with box input."""
+"""Agentbox REPL — Sci-fi tech style."""
 
 from __future__ import annotations
 
 import os
-import shutil
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -23,14 +22,14 @@ from . import __version__
 
 console = Console()
 
-# ── Frosted glass palette ──
-AC = "#5EEAD4"      # Soft teal accent
-AB = "#7DD3FC"      # Sky blue
-AD = "#94A3B8"      # Slate gray (dim text)
-AM = "#64748B"      # Muted slate
-ABG = "#0d1117"     # Near-black (toolbar bg)
-AW = "#CBD5E1"      # Light text
-AH = "#38BDF8"      # Highlight blue
+# ── Sci-fi palette ──
+C1 = "#5EEAD4"      # Teal glow (primary accent)
+C2 = "#7DD3FC"      # Ice blue (secondary)
+C3 = "#334155"      # Dark slate (borders, dim)
+C4 = "#94A3B8"      # Mid slate (dim text)
+C5 = "#CBD5E1"      # Light slate (normal text)
+C6 = "#0d1117"      # Void black (bg)
+C7 = "#38BDF8"      # Alert blue
 
 # ── Slash commands ──
 _CMDS = [
@@ -78,7 +77,7 @@ def _key_bindings() -> KeyBindings:
     kb = KeyBindings()
 
     @kb.add("enter", filter=Condition(lambda: bool(
-        __get_app().current_buffer.complete_state)))
+        _get_app().current_buffer.complete_state)))
     def _accept(event):
         cs = event.current_buffer.complete_state
         if cs and cs.current_completion:
@@ -87,7 +86,7 @@ def _key_bindings() -> KeyBindings:
     return kb
 
 
-def __get_app():
+def _get_app():
     from prompt_toolkit.application import get_app
     return get_app()
 
@@ -104,13 +103,13 @@ _BANNER = r"""
 
 def _splash() -> None:
     console.print()
-    console.print(f"  [bold {AC}]{_BANNER}[/]")
-    console.print(f"  [{AC}]◇[/]  [bold {AC}]Agentbox[/] [{AM}]v{__version__}[/]")
-    console.print(f"  [{AM}]│[/]  [{AD}]AI Agent Orchestration Sandbox[/]")
+    console.print(f"  [bold {C1}]{_BANNER}[/]")
+    console.print(f"  [{C1}]◇[/]  [bold {C1}]Agentbox[/] [{C3}]v{__version__}[/]")
+    console.print(f"  [{C3}]│[/]  [{C4}]AI Agent Orchestration Sandbox[/]")
     console.print()
-    console.print(f"  [{AM}]├─[/]  [{AD}]输入 [bold {AC}]/[/] 查看命令  [{AM}]·[/]  [bold {AC}]↑↓[/] 选择  [{AM}]·[/]  [bold {AC}]↵[/] 补全/执行[/]")
-    console.print(f"  [{AM}]├─[/]  [{AD}]输入 [bold {AC}]claude[/] 启动 Agent  [{AM}]·[/]  直接提问自动执行[/]")
-    console.print(f"  [{AM}]╰─[/]  [{AD}][bold {AC}]Ctrl+C[/] 取消  [{AM}]·[/]  [bold {AC}]Ctrl+D[/] 或 [bold {AC}]/exit[/] 退出[/]")
+    console.print(f"  [{C3}]├─[/]  [{C4}]输入 [bold {C1}]/[/] 查看命令  [{C3}]·[/]  [bold {C1}]↑↓[/] 选择  [{C3}]·[/]  [bold {C1}]↵[/] 补全/执行[/]")
+    console.print(f"  [{C3}]├─[/]  [{C4}]输入 [bold {C1}]claude[/] 启动 Agent  [{C3}]·[/]  直接提问自动执行[/]")
+    console.print(f"  [{C3}]╰─[/]  [{C4}][bold {C1}]Ctrl+C[/] 取消  [{C3}]·[/]  [bold {C1}]Ctrl+D[/] 或 [bold {C1}]/exit[/] 退出[/]")
     console.print()
 
 
@@ -120,20 +119,20 @@ def _help() -> None:
     table = Table(
         show_header=False,
         box=ROUNDED,
-        border_style=AM,
+        border_style=C3,
         padding=(0, 1),
     )
-    table.add_column("cmd", style=f"bold {AC}", min_width=24, no_wrap=True)
-    table.add_column("desc", style=AW, min_width=24, no_wrap=True)
-    table.add_column("cat", style=AM, min_width=8, no_wrap=True)
+    table.add_column("cmd", style=f"bold {C1}", min_width=24, no_wrap=True)
+    table.add_column("desc", style=C5, min_width=24, no_wrap=True)
+    table.add_column("cat", style=C3, min_width=8, no_wrap=True)
 
     for cmd, desc, cat, usage in _CMDS:
         c = f"{cmd} {usage}".strip() if usage else cmd
         table.add_row(c, desc, cat or "Other")
 
     console.print(Panel(
-        f"[bold {AC}]Commands[/]",
-        border_style=AM, padding=(0, 2)))
+        f"[bold {C1}]Commands[/]",
+        border_style=C3, padding=(0, 2)))
     console.print(table)
     console.print()
 
@@ -200,47 +199,33 @@ def _exec(ctx: Any, raw: str) -> bool:
         elif name == "help":
             _help()
         elif name in ("exit", "quit", "q"):
-            console.print(f"\n  [{AM}]Bye.[/]")
+            console.print(f"\n  [{C3}]Bye.[/]")
             return False
         else:
-            console.print(f"\n  [{AH}]✘[/] 未知命令: {cmd}  [{AD}]输入 / 查看命令[/]\n")
+            console.print(f"\n  [{C7}]✘[/] 未知命令: {cmd}  [{C4}]输入 / 查看命令[/]\n")
     except Exception as e:
-        console.print(f"\n  [{AH}]⚠[/] {e}")
-        console.print(f"  [{AD}]输入 /help 查看命令[/]\n")
+        console.print(f"\n  [{C7}]⚠[/] {e}")
+        console.print(f"  [{C4}]输入 /help 查看命令[/]\n")
 
     return True
 
 
-# ── prompt_toolkit style — rounded table look ──
+# ── prompt_toolkit style ──
 _style = PtStyle.from_dict({
-    "bottom-toolbar": f"bg:{ABG} {AD}",
-    "completion-menu": f"bg:#0d1117 {AW}",
-    "completion-menu.completion": f"bg:#0d1117 {AW}",
-    "completion-menu.completion.current": f"bg:#1a3a4a #ffffff bold",
-    "completion-menu.meta": f"bg:#0d1117 {AM}",
-    "completion-menu.completion.current meta": f"bg:#1a3a4a {AC}",
-    "scrollbar": f"bg:#1a2744",
-    "scrollbar.button": f"bg:{AC}",
-    "auto-suggestion": f"{AM}",
+    # Completion menu — sci-fi dark with teal highlight
+    "completion-menu":               f"bg:{C6} {C5}",
+    "completion-menu.completion":    f"bg:{C6} {C5}",
+    "completion-menu.completion.current": f"bg:#133543 #ffffff bold",
+    "completion-menu.meta":          f"bg:{C6} {C3}",
+    "completion-menu.completion.current meta": f"bg:#133543 {C1}",
+    # Scrollbar
+    "scrollbar":                     f"bg:#1c2128",
+    "scrollbar.button":              f"bg:{C1}",
+    # Auto-suggestion (gray history hint)
+    "auto-suggestion":               f"{C3}",
+    # Bottom toolbar — void black, teal accents
+    "bottom-toolbar":                f"bg:{C6} {C1}",
 })
-
-
-# ── Box prompt helpers ──
-def _make_top_border(project: str) -> str:
-    """Full-width top border: ╭─ ◈ project ────╮"""
-    w = shutil.get_terminal_size().columns
-    header = f"╭─ ◈ {project} "
-    # visual_len: count actual display columns
-    # ╭ = 1, ─ = 1 each, ◈ = 2 (wide char), spaces = 1 each
-    vis_len = 1 + 1 + 1 + 1 + 2 + 1 + len(project) + 1  # ╭─ ◈ project_
-    fill = max(1, w - vis_len - 1)  # -1 for ╮
-    return header + "─" * fill + "╮"
-
-
-def _make_bottom_border() -> str:
-    """Full-width bottom border: ╰──────────────╯"""
-    w = shutil.get_terminal_size().columns
-    return "╰" + "─" * max(1, w - 2) + "╯"
 
 
 # ── Main REPL ──
@@ -258,40 +243,33 @@ def run_repl(ctx: Any) -> None:
     project = os.path.basename(ctx.obj["project_path"])
 
     def _prompt():
-        top = _make_top_border(project)
         return FormattedText([
-            (f"{AM}", f"{top}\n"),
-            (f"{AM}", "│ "),
-        ])
-
-    def _rprompt():
-        return FormattedText([
-            (f"{AM}", " │"),
+            (f"bold {C1}", "╭─ "),
+            (f"{C2}", project),
+            (f"bold {C1}", " ──╯"),
+            ("", "\n"),
+            (f"bold {C1}", "╰ › "),
         ])
 
     def _toolbar():
         return FormattedText([
-            (f"bg:{ABG} {AM}", "  "),
-            (f"bg:{ABG} bold {AC}", "/"),
-            (f"bg:{ABG} {AD}", " 命令  "),
-            (f"bg:{ABG} {AM}", "·  "),
-            (f"bg:{ABG} bold {AC}", "↵"),
-            (f"bg:{ABG} {AD}", " 执行  "),
-            (f"bg:{ABG} {AM}", "·  "),
-            (f"bg:{ABG} bold {AC}", "/help"),
-            (f"bg:{ABG} {AD}", " 帮助  "),
-            (f"bg:{ABG} {AM}", "·  "),
-            (f"bg:{ABG} bold {AC}", "/exit"),
-            (f"bg:{ABG} {AD}", " 退出  "),
+            (f"bg:{C6} {C1}", "  ◈  "),
+            (f"bg:{C6} {C5}", "/ "),
+            (f"bg:{C6} {C4}", "命令  "),
+            (f"bg:{C6} {C3}", "·  "),
+            (f"bg:{C6} {C5}", "↵ "),
+            (f"bg:{C6} {C4}", "执行  "),
+            (f"bg:{C6} {C3}", "·  "),
+            (f"bg:{C6} {C5}", "/help "),
+            (f"bg:{C6} {C4}", "帮助  "),
+            (f"bg:{C6} {C3}", "·  "),
+            (f"bg:{C6} {C5}", "/exit "),
+            (f"bg:{C6} {C4}", "退出  "),
         ])
 
     while True:
         try:
-            user_input = session.prompt(
-                _prompt, rprompt=_rprompt,
-                bottom_toolbar=_toolbar, style=_style)
-            # Print bottom border after input
-            console.print(f"  [{AM}]{_make_bottom_border()}[/]")
+            user_input = session.prompt(_prompt, bottom_toolbar=_toolbar, style=_style)
             if not user_input or not user_input.strip():
                 continue
             user_input = user_input.strip()
@@ -314,15 +292,13 @@ def run_repl(ctx: Any) -> None:
                         project_path=ctx.obj["project_path"])
 
         except KeyboardInterrupt:
-            console.print(f"  [{AM}]{_make_bottom_border()}[/]")
+            console.print()
         except EOFError:
-            console.print(f"  [{AM}]{_make_bottom_border()}[/]")
-            console.print(f"\n  [{AM}]Bye.[/]\n")
+            console.print(f"\n  [{C3}]Bye.[/]\n")
             break
         except Exception as e:
-            console.print(f"  [{AM}]{_make_bottom_border()}[/]")
-            console.print(f"\n  [{AH}]⚠[/] {e}")
-            console.print(f"  [{AD}]REPL 已恢复[/]\n")
+            console.print(f"\n  [{C7}]⚠[/] {e}")
+            console.print(f"  [{C4}]REPL 已恢复[/]\n")
             try:
                 import subprocess
                 subprocess.run(["stty", "sane"], check=False)
