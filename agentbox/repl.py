@@ -83,7 +83,11 @@ class _Completer(Completer):
         for cmd, desc, cat, usage in _CMDS:
             if cmd.lower().startswith(text.lower()):
                 display = f"{cmd} {usage}".strip() if usage else cmd
-                meta = f"{cat}  ·  {desc}" if cat else desc
+                # Clean meta: category in brackets + description
+                if cat:
+                    meta = f"[{cat}] {desc}"
+                else:
+                    meta = desc
                 yield Completion(cmd, start_position=-len(text),
                                  display=display, display_meta=meta)
 
@@ -245,9 +249,11 @@ _style = PtStyle.from_dict({
     "completion-menu.completion.current":       f"bg:#2a1f10 {WHITE} bold",
     "completion-menu.meta.completion":          f"bg:#14100a {GOLD_DIM}",
     "completion-menu.meta.completion.current":  f"bg:#2a1f10 {GOLD}",
-    # Scrollbar
-    "scrollbar":                                f"bg:#0d1520",
-    "scrollbar.button":                         f"bg:{GOLD}",
+    # Scrollbar — unified warm gold
+    "scrollbar":                                f"bg:#14100a",
+    "scrollbar.background":                     f"bg:#14100a",
+    "scrollbar.button":                         f"bg:{GOLD_DIM}",
+    "scrollbar.arrow":                          f"{GOLD}",
     # Auto-suggestion
     "auto-suggestion":                          f"{GOLD_DIM}",
     # Bottom toolbar — premium gold on transparent
