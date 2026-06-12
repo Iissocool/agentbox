@@ -49,6 +49,87 @@ def _parse_agent_role(spec: str) -> dict[str, str]:
     return {"agent": spec, "role": spec}
 
 
+# ── Interactive command palette ──
+
+COMMAND_PALETTE = [
+    # (key, command, description_zh, category)
+    ("claude",    "ag claude",              "启动 Claude Code 沙盒",           "🤖 启动 Agent"),
+    ("codex",     "ag codex",               "启动 OpenAI Codex 沙盒",          "🤖 启动 Agent"),
+    ("aider",     "ag aider",               "启动 Aider 沙盒",                 "🤖 启动 Agent"),
+    ("goose",     "ag goose",               "启动 Goose 沙盒",                 "🤖 启动 Agent"),
+    ("opencode",  "ag opencode",            "启动 OpenCode 沙盒",              "🤖 启动 Agent"),
+    ("run",       "ag run <agent>",         "运行任意已配置的 Agent",           "🤖 启动 Agent"),
+    ("compose",   "ag compose a:r b:r",     "多 Agent 角色组合协作",           "👥 多 Agent"),
+    ("team",      "ag team <id>",           "运行预定义团队",                  "👥 多 Agent"),
+    ("compare",   "ag compare a b",         "多个 Agent 并排对比",            "👥 多 Agent"),
+    ("ask",       'ag ask "问题"',          "快捷提问，一键启动 Agent",        "💬 对话"),
+    ("status",    "ag status",              "查看所有会话和沙盒状态",          "📊 管理"),
+    ("attach",    "ag attach",              "重连到 tmux 会话",               "📊 管理"),
+    ("kill",      "ag kill",                "停止会话和沙盒（保留数据）",      "📊 管理"),
+    ("logs",      "ag logs",                "查看沙盒日志",                    "📊 管理"),
+    ("history",   "ag history",             "查看会话历史",                    "📊 管理"),
+    ("diff",      "ag diff",                "查看 Git 改动摘要",              "🔧 工作流"),
+    ("merge",     'ag merge -m "msg"',      "暂存并提交所有改动",             "🔧 工作流"),
+    ("review",    "ag review",              "审查改动+测试+合并/丢弃",        "🔧 工作流"),
+    ("test",      "ag test",                "运行项目测试",                    "🔧 工作流"),
+    ("pipeline",  "ag pipeline dev",        "多步流水线编排",                  "🧠 流水线"),
+    ("list",      "ag list",                "列出可用 Agent 和团队",          "⚙️ 配置"),
+    ("config",    "ag config show",         "查看/编辑配置",                   "⚙️ 配置"),
+    ("init",      "ag init",                "初始化项目 AGENTS.md",           "⚙️ 配置"),
+]
+
+
+def _interactive_command_palette(config: dict) -> str | None:
+    """Show interactive command palette with Chinese descriptions."""
+    console.print("\n[bold cyan]🧊 Agentbox 命令面板[/bold cyan]")
+    console.print("[dim]输入 / 可随时唤出此面板 | 输入编号或命令名选择[/dim]\n")
+
+    # Group by category
+    categories: dict[str, list[tuple[str, str, str]]] = {}
+    for key, cmd, desc_zh, cat in COMMAND_PALETTE:
+        categories.setdefault(cat, []).append((key, cmd, desc_zh))
+
+    items = []  # (key, cmd, desc_zh)
+    idx = 1
+    for cat, cmds in categories.items():
+        console.print(f"  [bold]{cat}[/bold]")
+        for key, cmd, desc_zh in cmds:
+            items.append((key, cmd, desc_zh))
+            console.print(f"    [green]{idx:>2}[/green]. [cyan]{cmd:<30}[/cyan] {desc_zh}")
+            idx += 1
+        console.print()
+
+    console.print("[dim]0. 退出[/dim]\n")
+
+    while True:
+        choice = click.prompt("选择命令", type=str, default="1")
+
+        if choice.strip() == "0":
+            return None
+
+        # Try as number
+        try:
+            num = int(choice.strip())
+            if 1 <= num <= len(items):
+                return items[num - 1][0]
+            console.print(f"[red]无效编号，请输入 1-{len(items)}[/red]")
+            continue
+        except ValueError:
+            pass
+
+        # Try as command key / partial match
+        choice_lower = choice.strip().lower()
+        matches = [item for item in items if item[0] == choice_lower or choice_lower in item[0]]
+        if len(matches) == 1:
+            return matches[0][0]
+        elif len(matches) > 1:
+            console.print(f"[yellow]多个匹配: {', '.join(m[0] for m in matches)}，请更精确[/yellow]")
+            continue
+        else:
+            console.print(f"[red]未找到命令: {choice}[/red]")
+            continue
+
+
 def _interactive_agent_select(config: dict) -> str | None:
     """Show interactive agent selector when no agent is specified."""
     local_agents = detect_local_agents()
@@ -88,6 +169,86 @@ def _interactive_agent_select(config: dict) -> str | None:
         return None
 
 
+def _execute_palette_choice(ctx: click.Context, choice: str) -> None:
+    """Execute a command selected from the palette."""
+    config = ctx.obj["config"]
+    project_path = ctx.obj["project_path"]
+    runner = AgentRunner(config)
+
+    # Agent shortcuts — launch directly
+    if choice in ("claude", "codex", "aider", "goose", "opencode"):
+        runner.run_agent(choice, project_path)
+    elif choice == "run":
+        agent_id = _interactive_agent_select(config)
+        if agent_id:
+            runner.run_agent(agent_id, project_path)
+    elif choice == "compose":
+        specs = click.prompt("输入组合 (如 claude:coder codex:reviewer)", type=str)
+        composition = [_parse_agent_role(s) for s in specs.strip().split()]
+        runner.run_compose(composition, project_path)
+    elif choice == "team":
+        teams = list_teams(config)
+        if not teams:
+            console.print("[red]没有配置团队[/red]")
+            return
+        console.print("\n[bold]可用团队:[/bold]")
+        for i, t in enumerate(teams, 1):
+            console.print(f"  {i}. [cyan]{t['id']}[/cyan] — {t.get('description', '')}")
+        idx = click.prompt("选择团队编号", type=int, default=1)
+        if 1 <= idx <= len(teams):
+            runner.run_team(teams[idx - 1]["id"], project_path)
+    elif choice == "compare":
+        agents_str = click.prompt("输入对比的 Agent (如 claude codex)", type=str)
+        agents_list = agents_str.strip().split()
+        runner.run_compare(agents_list, project_path)
+    elif choice == "ask":
+        question = click.prompt("输入你的问题", type=str)
+        engine = WorkflowEngine(config)
+        engine.ask(prompt=question, agent_id="claude", project_path=project_path)
+    elif choice == "status":
+        # Invoke the status command
+        ctx.invoke(status)
+    elif choice == "attach":
+        ctx.invoke(attach)
+    elif choice == "kill":
+        ctx.invoke(kill)
+    elif choice == "logs":
+        ctx.invoke(logs)
+    elif choice == "history":
+        ctx.invoke(history)
+    elif choice == "diff":
+        ctx.invoke(diff_cmd)
+    elif choice == "merge":
+        msg = click.prompt("提交信息", type=str, default="Update project")
+        ctx.invoke(merge, message=msg)
+    elif choice == "review":
+        ctx.invoke(review)
+    elif choice == "test":
+        ctx.invoke(test_cmd)
+    elif choice == "pipeline":
+        console.print("\n[bold]可用流水线:[/bold]")
+        console.print("  1. dev      — 规划→编码→审查")
+        console.print("  2. research — 研究→总结→评审")
+        console.print("  3. compare  — 多Agent对比→综合")
+        ptype = click.prompt("选择流水线", type=str, default="dev")
+        task = click.prompt("输入任务描述", type=str)
+        orch = Orchestrator(config)
+        if ptype == "dev":
+            orch.execute(dev_pipeline(task), project_path)
+        elif ptype == "research":
+            orch.execute(research_pipeline(task), project_path)
+        elif ptype == "compare":
+            orch.execute(compare_pipeline(task), project_path)
+    elif choice == "list":
+        ctx.invoke(list)
+    elif choice == "config":
+        ctx.invoke(config_show)
+    elif choice == "init":
+        ctx.invoke(init)
+    else:
+        console.print(f"[yellow]未知命令: {choice}[/yellow]")
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Main group
 # ═══════════════════════════════════════════════════════════════════
@@ -114,10 +275,9 @@ def main(ctx: click.Context, project_path: str | None) -> None:
 
     if ctx.invoked_subcommand is None:
         config = ctx.obj["config"]
-        agent_id = _interactive_agent_select(config)
-        if agent_id:
-            runner = AgentRunner(config)
-            runner.run_agent(agent_id, ctx.obj["project_path"])
+        choice = _interactive_command_palette(config)
+        if choice:
+            _execute_palette_choice(ctx, choice)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -140,6 +300,20 @@ for _aid in ["claude", "codex", "aider", "goose", "opencode"]:
     _cmd = _make_agent_command(_aid)
     _cmd.__doc__ = f"🤖 Run {_aid.capitalize()} in Docker sandbox."
     main.add_command(click.command(name=_aid)(_cmd))
+
+
+# ── / shortcut: ag / → command palette ──
+# Click doesn't allow "/" as command name, so we use a unicode lookalike
+# and also register "slash" as an alias
+
+@main.command(name="/")
+@click.pass_context
+def slash_cmd(ctx: click.Context) -> None:
+    """📋 快速唤出命令面板."""
+    config = ctx.obj["config"]
+    choice = _interactive_command_palette(config)
+    if choice:
+        _execute_palette_choice(ctx, choice)
 
 
 @main.command()
