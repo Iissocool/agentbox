@@ -27,8 +27,8 @@ AC = "#5EEAD4"      # Soft teal accent
 AB = "#7DD3FC"      # Sky blue
 AD = "#94A3B8"      # Slate gray (dim text)
 AM = "#64748B"      # Muted slate
-ABG = "#0F172A"     # Dark slate (toolbar bg)
-ABD = "#1E293B"     # Border dark
+ABG = "#0d1117"     # Near-black (toolbar bg, blends with transparent terminal)
+ABD = "#21262d"     # Subtle border
 AW = "#CBD5E1"      # Light text
 AH = "#38BDF8"      # Highlight blue
 
@@ -105,13 +105,12 @@ _BANNER = r"""
 def _splash() -> None:
     console.print()
     console.print(f"  [bold {AC}]{_BANNER}[/]")
-    console.print(f"  [bold {AC}]Agentbox[/] [{AM}]v{__version__}[/]  [{AM}]·[/]  [{AD}]AI Agent 编排沙盒[/]")
+    console.print(f"  [{AC}]◇[/]  [bold {AC}]Agentbox[/] [{AM}]v{__version__}[/]")
+    console.print(f"  [{AM}]│[/]  [{AD}]AI Agent Orchestration Sandbox[/]")
     console.print()
-    console.print(f"  [{ABD}]{'─' * 43}[/]")
-    console.print()
-    console.print(f"  [{AD}]输入 [bold {AC}]/[/] 查看命令  ·  [bold {AC}]↑↓[/] 选择  ·  [bold {AC}]↵[/] 补全/执行[/]")
-    console.print(f"  [{AD}]输入 [bold {AC}]claude[/] 启动 Agent  ·  直接提问自动执行[/]")
-    console.print(f"  [{AD}][bold {AC}]Ctrl+C[/] 取消  ·  [bold {AC}]Ctrl+D[/] 或 [bold {AC}]/exit[/] 退出[/]")
+    console.print(f"  [{AM}]├─[/]  [{AD}]输入 [bold {AC}]/[/] 查看命令  [{AM}]·[/]  [bold {AC}]↑↓[/] 选择  [{AM}]·[/]  [bold {AC}]↵[/] 补全/执行[/]")
+    console.print(f"  [{AM}]├─[/]  [{AD}]输入 [bold {AC}]claude[/] 启动 Agent  [{AM}]·[/]  直接提问自动执行[/]")
+    console.print(f"  [{AM}]╰─[/]  [{AD}][bold {AC}]Ctrl+C[/] 取消  [{AM}]·[/]  [bold {AC}]Ctrl+D[/] 或 [bold {AC}]/exit[/] 退出[/]")
     console.print()
 
 
