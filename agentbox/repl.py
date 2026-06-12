@@ -385,3 +385,14 @@ def run_repl(ctx: Any) -> None:
         except EOFError:
             console.print("\n  [dim]👋 再见！[/dim]\n")
             break
+        except Exception as e:
+            # Catch ALL exceptions — REPL never crashes out
+            console.print(f"\n  [red]⚠ 错误:[/red] {e}")
+            console.print("  [dim]REPL 已恢复，输入 /exit 退出[/dim]\n")
+            # Ensure terminal is in a sane state
+            try:
+                import subprocess
+                subprocess.run(["stty", "sane"], check=False)
+            except Exception:
+                pass
+            continue

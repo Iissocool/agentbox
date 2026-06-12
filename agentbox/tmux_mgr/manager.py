@@ -142,27 +142,34 @@ class TmuxManager:
     def attach_session(self, session_name: str) -> int:
         """Attach to a tmux session.
 
-        Uses os.execvp to replace the current process with tmux,
-        giving it full terminal control. This is necessary because
-        subprocess.run doesn't work well when another library
-        (like prompt_toolkit) controls the terminal.
+        Uses subprocess.run so that after detaching (Ctrl+B D),
+        control returns to the caller (e.g., the REPL).
 
-        When the user detaches (Ctrl+B D), they return to their shell.
+        Terminal state is carefully managed:
+        - Before attach: restore terminal from raw mode (prompt_toolkit)
+        - After detach: restore terminal again for prompt_toolkit
         """
         try:
-            # Restore terminal to sane state before exec
-            # (prompt_toolkit leaves it in raw mode)
+            # Restore terminal to sane state before attaching
+            # (prompt_toolkit may leave it in raw mode)
             subprocess.run(["stty", "sane"], check=False)
 
             if os.environ.get("TMUX"):
                 # Already inside tmux — switch client instead of nesting
-                os.execvp("tmux", ["tmux", "switch-client", "-t", session_name])
+                result = subprocess.run(["tmux", "switch-client", "-t", session_name])
             else:
-                os.execvp("tmux", ["tmux", "attach-session", "-t", session_name])
-            # os.execvp replaces the process, so we never reach here
-            return 0
+                result = subprocess.run(["tmux", "attach-session", "-t", session_name])
+
+            # Restore terminal again after detaching from tmux
+            subprocess.run(["stty", "sane"], check=False)
+            return result.returncode
         except FileNotFoundError:
             console.print("[red]tmux not found[/red]")
+            return 1
+        except Exception as e:
+            # Ensure terminal is restored even on error
+            subprocess.run(["stty", "sane"], check=False)
+            console.print(f"[red]Failed to attach: {e}[/red]")
             return 1
 
     def kill_session(self, session_name: str) -> bool:
