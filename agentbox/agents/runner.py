@@ -472,7 +472,7 @@ class AgentRunner:
             f"Container: [cyan]{container_name}[/cyan]\n"
             f"Path:      [dim]{mount_point}[/dim]\n\n"
             f"[dim]Ctrl+B n  下一个窗口 (agent)[/dim]\n"
-            f"[dim]Ctrl+B p  上一个窗口[//dim]\n"
+            f"[dim]Ctrl+B p  上一个窗口[/dim]\n"
             f"[dim]Ctrl+B D  脱离会话[/dim]",
             title=f"Shell: {agent_id}",
             border_style="green",
