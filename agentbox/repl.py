@@ -104,12 +104,7 @@ _BANNER = r"""
 def _splash() -> None:
     console.print()
     console.print(f"  [bold {C1}]{_BANNER}[/]")
-    console.print(f"  [{C1}]◇[/]  [bold {C1}]Agentbox[/] [{C3}]v{__version__}[/]")
-    console.print(f"  [{C3}]│[/]  [{C4}]AI Agent Orchestration Sandbox[/]")
-    console.print()
-    console.print(f"  [{C3}]├─[/]  [{C4}]输入 [bold {C1}]/[/] 查看命令  [{C3}]·[/]  [bold {C1}]↑↓[/] 选择  [{C3}]·[/]  [bold {C1}]↵[/] 补全/执行[/]")
-    console.print(f"  [{C3}]├─[/]  [{C4}]输入 [bold {C1}]claude[/] 启动 Agent  [{C3}]·[/]  直接提问自动执行[/]")
-    console.print(f"  [{C3}]╰─[/]  [{C4}][bold {C1}]Ctrl+C[/] 取消  [{C3}]·[/]  [bold {C1}]Ctrl+D[/] 或 [bold {C1}]/exit[/] 退出[/]")
+    console.print(f"  [{C1}]◈[/]  [bold {C1}]Agentbox[/] [{C3}]v{__version__}[/]  [{C3}]─[/]  [{C4}]AI Agent Orchestration Sandbox[/]")
     console.print()
 
 
@@ -257,11 +252,19 @@ def run_repl(ctx: Any) -> None:
             (f"bg:{C6} {C5}", "/ "),
             (f"bg:{C6} {C4}", "命令  "),
             (f"bg:{C6} {C3}", "·  "),
+            (f"bg:{C6} {C5}", "↑↓ "),
+            (f"bg:{C6} {C4}", "选择  "),
+            (f"bg:{C6} {C3}", "·  "),
             (f"bg:{C6} {C5}", "↵ "),
             (f"bg:{C6} {C4}", "执行  "),
+            (f"bg:{C6} {C3}", "│  "),
+            (f"bg:{C6} {C5}", "claude "),
+            (f"bg:{C6} {C4}", "启动Agent  "),
             (f"bg:{C6} {C3}", "·  "),
-            (f"bg:{C6} {C5}", "/help "),
-            (f"bg:{C6} {C4}", "帮助  "),
+            (f"bg:{C6} {C4}", "直接提问自动执行  "),
+            (f"bg:{C6} {C3}", "│  "),
+            (f"bg:{C6} {C5}", "Ctrl+C "),
+            (f"bg:{C6} {C4}", "取消  "),
             (f"bg:{C6} {C3}", "·  "),
             (f"bg:{C6} {C5}", "/exit "),
             (f"bg:{C6} {C4}", "退出  "),
