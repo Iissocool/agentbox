@@ -256,19 +256,19 @@ def _exec(ctx: Any, raw: str) -> bool:
 #  PROMPT_TOOLKIT STYLE — Sovereign Terminal
 # ═══════════════════════════════════════════════════════════════
 _style = PtStyle.from_dict({
-    # Completion menu — transparent-friendly: minimal bg, gold highlight
-    "completion-menu":                          f"{PEARL}",
-    "completion-menu.completion":               f"{PEARL}",
-    "completion-menu.completion.current":       f"bg:#1a2840 #ffffff bold",
-    "completion-menu.meta":                     f"{SILVER}",
-    "completion-menu.completion.current meta":  f"bg:#1a2840 {GOLD_LIGHT}",
+    # Completion menu — gold sovereign theme
+    "completion-menu":                          f"bg:#0d1520 {GOLD_LIGHT}",
+    "completion-menu.completion":               f"bg:#0d1520 {GOLD_LIGHT}",
+    "completion-menu.completion.current":       f"bg:#2a1f10 {WHITE} bold",
+    "completion-menu.meta":                     f"bg:#0d1520 {GOLD_DIM}",
+    "completion-menu.completion.current meta":  f"bg:#2a1f10 {GOLD}",
     # Scrollbar
-    "scrollbar":                                f"bg:#1a2840",
+    "scrollbar":                                f"bg:#0d1520",
     "scrollbar.button":                         f"bg:{GOLD}",
     # Auto-suggestion
-    "auto-suggestion":                          f"#4a5568",
-    # Bottom toolbar — NO bg, let Ghostty transparency shine through
-    "bottom-toolbar":                           f"{GOLD}",
+    "auto-suggestion":                          f"{GOLD_DIM}",
+    # Bottom toolbar — all gold
+    "bottom-toolbar":                           f"bold {GOLD}",
 })
 
 
@@ -302,28 +302,9 @@ def run_repl(ctx: Any) -> None:
         ])
 
     def _toolbar():
-        # No bg: — Ghostty transparent terminal friendly
+        # All gold — cohesive on any terminal background
         return FormattedText([
-            (f"bold {GOLD}", "  ◈  "),
-            (f"{GOLD_LIGHT}", "/ "),
-            (f"{PEARL}", "命令  "),
-            (f"{GOLD}", "·  "),
-            (f"{GOLD_LIGHT}", "↑↓ "),
-            (f"{PEARL}", "选择  "),
-            (f"{GOLD}", "·  "),
-            (f"{GOLD_LIGHT}", "↵ "),
-            (f"{PEARL}", "执行  "),
-            (f"{GOLD}", "│  "),
-            (f"{GOLD_LIGHT}", "claude "),
-            (f"{PEARL}", "启动  "),
-            (f"{GOLD}", "·  "),
-            (f"{PEARL}", "提问即执行  "),
-            (f"{GOLD}", "│  "),
-            (f"{GOLD_LIGHT}", "⌃C "),
-            (f"{PEARL}", "取消  "),
-            (f"{GOLD}", "·  "),
-            (f"{GOLD_LIGHT}", "/exit "),
-            (f"{PEARL}", "退出  "),
+            (f"bold {GOLD}", "  ◈  / 命令  ·  ↑↓ 选择  ·  ↵ 执行  │  claude 启动  ·  提问即执行  │  ⌃C 取消  ·  /exit 退出  "),
         ])
 
     while True:
