@@ -62,6 +62,8 @@ _CMDS = [
     ("/attach",   "重连到 tmux 会话",             "Manage", ""),
     ("/kill",     "停止会话和沙盒",                "Manage", ""),
     ("/logs",     "查看沙盒日志",                  "Manage", ""),
+    ("/history",  "查看会话历史",                  "Manage", ""),
+    ("/init",     "初始化项目 AGENTS.md",          "Config", ""),
     ("/diff",     "查看 Git 改动摘要",            "Flow",   ""),
     ("/merge",    "暂存并提交所有改动",           "Flow",   "-m \"msg\""),
     ("/review",   "审查改动+测试+合并/丢弃",      "Flow",   ""),
