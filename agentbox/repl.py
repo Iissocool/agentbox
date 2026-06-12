@@ -15,6 +15,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.controls import BufferControl
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.filters import Condition
+from prompt_toolkit.styles import Style as PtStyle
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -279,6 +280,17 @@ def click_prompt(msg: str, default: str = "") -> str:
         return default
 
 
+_repl_style = PtStyle.from_dict({
+    "bottom-toolbar": "bg:#1a1a2e #888888",
+    "bottom-toolbar.text": "bg:#1a1a2e #aaaaaa",
+    "completion-menu": "bg:#1a1a2e #ffffff",
+    "completion-menu.completion": "bg:#1a1a2e #ffffff",
+    "completion-menu.completion.current": "bg:#0f3460 #ffffff bold",
+    "completion-menu.meta": "bg:#16213e #888888",
+    "completion-menu.completion.current meta": "bg:#0f3460 #cccccc",
+})
+
+
 def run_repl(ctx: Any) -> None:
     """Run the interactive Agentbox REPL."""
     _print_splash()
@@ -296,19 +308,47 @@ def run_repl(ctx: Any) -> None:
 
     project_name = os.path.basename(ctx.obj["project_path"])
 
+    def _bottom_toolbar():
+        """Bottom toolbar with contextual hints."""
+        return FormattedText([
+            ("class:bottom-toolbar.text", "  💡 输入 "),
+            ("class:bottom-toolbar.text bold", "/"),
+            ("class:bottom-toolbar.text", " 查看命令  ·  "),
+            ("class:bottom-toolbar.text bold", "↑↓"),
+            ("class:bottom-toolbar.text", " 选择  ·  "),
+            ("class:bottom-toolbar.text bold", "↵"),
+            ("class:bottom-toolbar.text", " 补全  ·  再 "),
+            ("class:bottom-toolbar.text bold", "↵"),
+            ("class:bottom-toolbar.text", " 执行  ·  "),
+            ("class:bottom-toolbar.text bold", "Ctrl+D"),
+            ("class:bottom-toolbar.text", " 退出"),
+        ])
+
     while True:
         try:
-            # Elegant prompt: ╭─ 🧊 project ─╮  ...  ╰──────────────╯
-            # prompt_toolkit prompt
+            # Elegant prompt with box-drawing style
             prompt_text = FormattedText([
-                ("bold cyan", "🧊 "),
+                ("bold cyan", "╭─"),
+                ("", " "),
+                ("bold cyan", "🧊"),
+                ("", " "),
                 ("bold green", project_name),
                 ("", " "),
-                ("dim", "›"),
+                ("dim cyan", "──"),
+                ("", " "),
+                ("bold cyan", "╯"),
+                ("", "\n"),
+                ("bold cyan", "╰"),
+                ("", " "),
+                ("bold yellow", "›"),
                 ("", " "),
             ])
 
-            user_input = session.prompt(prompt_text)
+            user_input = session.prompt(
+                prompt_text,
+                bottom_toolbar=_bottom_toolbar,
+                style=_repl_style,
+            )
 
             if not user_input or not user_input.strip():
                 continue
