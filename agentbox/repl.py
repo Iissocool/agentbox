@@ -256,19 +256,19 @@ def _exec(ctx: Any, raw: str) -> bool:
 #  PROMPT_TOOLKIT STYLE — Sovereign Terminal
 # ═══════════════════════════════════════════════════════════════
 _style = PtStyle.from_dict({
-    # Completion menu — deep navy with gold highlight
-    "completion-menu":                          f"bg:{NAVY} {PEARL}",
-    "completion-menu.completion":               f"bg:{NAVY} {PEARL}",
-    "completion-menu.completion.current":       f"bg:{ROYAL} #ffffff bold",
-    "completion-menu.meta":                     f"bg:{NAVY} {SILVER}",
-    "completion-menu.completion.current meta":  f"bg:{ROYAL} {GOLD_LIGHT}",
+    # Completion menu — transparent-friendly: minimal bg, gold highlight
+    "completion-menu":                          f"{PEARL}",
+    "completion-menu.completion":               f"{PEARL}",
+    "completion-menu.completion.current":       f"bg:#1a2840 #ffffff bold",
+    "completion-menu.meta":                     f"{SILVER}",
+    "completion-menu.completion.current meta":  f"bg:#1a2840 {GOLD_LIGHT}",
     # Scrollbar
-    "scrollbar":                                f"bg:{NAVY_MID}",
+    "scrollbar":                                f"bg:#1a2840",
     "scrollbar.button":                         f"bg:{GOLD}",
     # Auto-suggestion
-    "auto-suggestion":                          f"{NAVY_LIGHT}",
-    # Bottom toolbar — visible navy, gold text
-    "bottom-toolbar":                           f"bg:#1a3050 {GOLD}",
+    "auto-suggestion":                          f"#4a5568",
+    # Bottom toolbar — NO bg, let Ghostty transparency shine through
+    "bottom-toolbar":                           f"{GOLD}",
 })
 
 
@@ -301,35 +301,29 @@ def run_repl(ctx: Any) -> None:
             (f"bold {GOLD}", "› "),
         ])
 
-    TBG = "#1a3050"  # Toolbar bg — visible navy blue
-
     def _toolbar():
+        # No bg: — Ghostty transparent terminal friendly
         return FormattedText([
-            # ── Left: Navigation ──
-            (f"bg:{TBG} {GOLD}", "  ◈  "),
-            (f"bg:{TBG} {GOLD_LIGHT}", "/ "),
-            (f"bg:{TBG} {PEARL}", "命令  "),
-            (f"bg:{TBG} {ELECTRIC}", "·  "),
-            (f"bg:{TBG} {GOLD_LIGHT}", "↑↓ "),
-            (f"bg:{TBG} {PEARL}", "选择  "),
-            (f"bg:{TBG} {ELECTRIC}", "·  "),
-            (f"bg:{TBG} {GOLD_LIGHT}", "↵ "),
-            (f"bg:{TBG} {PEARL}", "执行  "),
-            # ── Divider ──
-            (f"bg:{TBG} {ROYAL}", "│  "),
-            # ── Center: Agent ──
-            (f"bg:{TBG} {GOLD_LIGHT}", "claude "),
-            (f"bg:{TBG} {PEARL}", "启动  "),
-            (f"bg:{TBG} {ELECTRIC}", "·  "),
-            (f"bg:{TBG} {PEARL}", "提问即执行  "),
-            # ── Divider ──
-            (f"bg:{TBG} {ROYAL}", "│  "),
-            # ── Right: Session ──
-            (f"bg:{TBG} {GOLD_LIGHT}", "⌃C "),
-            (f"bg:{TBG} {PEARL}", "取消  "),
-            (f"bg:{TBG} {ELECTRIC}", "·  "),
-            (f"bg:{TBG} {GOLD_LIGHT}", "/exit "),
-            (f"bg:{TBG} {PEARL}", "退出  "),
+            (f"bold {GOLD}", "  ◈  "),
+            (f"{GOLD_LIGHT}", "/ "),
+            (f"{PEARL}", "命令  "),
+            (f"{GOLD}", "·  "),
+            (f"{GOLD_LIGHT}", "↑↓ "),
+            (f"{PEARL}", "选择  "),
+            (f"{GOLD}", "·  "),
+            (f"{GOLD_LIGHT}", "↵ "),
+            (f"{PEARL}", "执行  "),
+            (f"{GOLD}", "│  "),
+            (f"{GOLD_LIGHT}", "claude "),
+            (f"{PEARL}", "启动  "),
+            (f"{GOLD}", "·  "),
+            (f"{PEARL}", "提问即执行  "),
+            (f"{GOLD}", "│  "),
+            (f"{GOLD_LIGHT}", "⌃C "),
+            (f"{PEARL}", "取消  "),
+            (f"{GOLD}", "·  "),
+            (f"{GOLD_LIGHT}", "/exit "),
+            (f"{PEARL}", "退出  "),
         ])
 
     while True:
