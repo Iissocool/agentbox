@@ -53,7 +53,7 @@ SLASH_COMMANDS = [
     ("/config",    "查看/编辑配置",                    "⚙️ 配置",    "show|edit|reset"),
     ("/init",      "初始化项目 AGENTS.md",            "⚙️ 配置",    ""),
     ("/help",      "显示帮助信息",                     "❓ 其他",    ""),
-    ("/quit",      "退出 Agentbox",                   "❓ 其他",    ""),
+    ("/exit",      "退出 Agentbox",                   "❓ 其他",    ""),
 ]
 
 
@@ -125,7 +125,7 @@ def _print_splash() -> None:
     console.print()
     console.print(f"  [dim]💡[/dim]  输入 [bold cyan]/[/bold cyan] 查看所有命令  [dim]·[/dim]  [bold cyan]↑↓[/bold cyan] 选择  [dim]·[/dim]  [bold cyan]↵[/bold cyan] 补全  [dim]·[/dim]  再 [bold cyan]↵[/bold cyan] 执行")
     console.print(f"  [dim]💡[/dim]  直接输入 [bold]claude[/bold] 启动 Agent  [dim]·[/dim]  输入问题自动提问")
-    console.print(f"  [dim]💡[/dim]  [bold]Ctrl+C[/bold] 取消  [dim]·[/dim]  [bold]Ctrl+D[/bold] 或 [bold cyan]/quit[/bold cyan] 退出")
+    console.print(f"  [dim]💡[/dim]  [bold]Ctrl+C[/bold] 取消  [dim]·[/dim]  [bold]Ctrl+D[/bold] 或 [bold cyan]/exit[/bold cyan] 退出")
     console.print()
 
 
@@ -262,7 +262,7 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
         ctx.invoke(init)
     elif cmd_name == "help":
         _print_help()
-    elif cmd_name in ("quit", "exit", "q"):
+    elif cmd_name in ("exit", "quit", "q"):
         console.print("\n  [dim]👋 再见！[/dim]\n")
         return False
     else:
@@ -320,7 +320,7 @@ def run_repl(ctx: Any) -> None:
             ("class:bottom-toolbar.text", " 补全  ·  再 "),
             ("class:bottom-toolbar.text bold", "↵"),
             ("class:bottom-toolbar.text", " 执行  ·  "),
-            ("class:bottom-toolbar.text bold", "Ctrl+D"),
+            ("class:bottom-toolbar.text bold", "/exit"),
             ("class:bottom-toolbar.text", " 退出"),
         ])
 
@@ -376,7 +376,7 @@ def run_repl(ctx: Any) -> None:
                     engine.ask(prompt=user_input, agent_id="claude", project_path=ctx.obj["project_path"])
 
         except KeyboardInterrupt:
-            console.print("\n  [dim]按 Ctrl+D 或输入 /quit 退出[/dim]")
+            console.print("\n  [dim]按 Ctrl+D 或输入 /exit 退出[/dim]")
             continue
         except EOFError:
             console.print("\n  [dim]👋 再见！[/dim]\n")
