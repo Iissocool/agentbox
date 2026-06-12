@@ -131,6 +131,9 @@ def _help() -> None:
         c = f"{cmd} {usage}".strip() if usage else cmd
         table.add_row(c, desc, cat or "Other")
 
+    console.print(Panel(
+        f"[bold {AC}]Commands[/]",
+        border_style=AM, padding=(0, 2)))
     console.print(table)
     console.print()
 
