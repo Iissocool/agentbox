@@ -16,6 +16,34 @@ from ..sandbox import SandboxManager
 from ..state import register_window, unregister_session
 from ..tmux_mgr import TmuxManager
 
+
+def _get_agent_env_flags(agent_id: str, agent_config: dict) -> list[str]:
+    """Build docker exec -e flags from agent config + Claude settings.json."""
+    import json
+    from pathlib import Path
+
+    env_flags = []
+    env_var_names = agent_config.get("env_vars", [])
+
+    # Read from Claude settings.json
+    extra_env = {}
+    if agent_id == "claude":
+        settings_path = Path.home() / ".claude" / "settings.json"
+        if settings_path.exists():
+            try:
+                with open(settings_path) as f:
+                    settings = json.loads(f.read())
+                extra_env = settings.get("env", {})
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    for var_name in env_var_names:
+        val = extra_env.get(var_name) or os.environ.get(var_name, "")
+        if val:
+            env_flags.extend(["-e", f"{var_name}={val}"])
+
+    return env_flags
+
 console = Console()
 
 
@@ -124,7 +152,7 @@ class AgentRunner:
                     return False
                 run_cmd = agent_config.get("run_cmd", agent_id)
                 cmd = self._build_agent_command(agent_id, run_cmd, prompt)
-                docker_cmd = f"docker exec -it agentbox-{sandbox_name} {cmd}"
+                docker_cmd = self._build_docker_exec(agent_id, f"agentbox-{sandbox_name}", cmd)
                 self._restart_window(session_name, window_name, docker_cmd)
 
                 register_window(
@@ -147,7 +175,7 @@ class AgentRunner:
 
         run_cmd = agent_config.get("run_cmd", agent_id)
         cmd = self._build_agent_command(agent_id, run_cmd, prompt)
-        docker_cmd = f"docker exec -it agentbox-{sandbox_name} {cmd}"
+        docker_cmd = self._build_docker_exec(agent_id, f"agentbox-{sandbox_name}", cmd)
         new_window_name = self.tmux_mgr.add_agent_window(
             session_name, f"sb-{window_label}", docker_cmd, project_path
         )
@@ -239,7 +267,7 @@ class AgentRunner:
 
             run_cmd = agent_config.get("run_cmd", agent_id)
             agent_cmd = self._build_agent_command(agent_id, run_cmd, role_prompt)
-            cmd = f"docker exec -it agentbox-{sandbox_name} {agent_cmd}"
+            cmd = self._build_docker_exec(agent_id, f"agentbox-{sandbox_name}", agent_cmd)
             window_name = self.tmux_mgr.add_agent_window(
                 session_name, f"sb-{window_label}", cmd, project_path
             )
@@ -310,7 +338,7 @@ class AgentRunner:
 
             run_cmd = agent_config.get("run_cmd", agent_id)
             agent_cmd = self._build_agent_command(agent_id, run_cmd, agent_prompt)
-            cmd = f"docker exec -it agentbox-{sandbox_name} {agent_cmd}"
+            cmd = self._build_docker_exec(agent_id, f"agentbox-{sandbox_name}", agent_cmd)
             window_name = self.tmux_mgr.add_agent_window(
                 session_name, f"sb-{window_label}", cmd, project_path
             )
@@ -363,7 +391,7 @@ class AgentRunner:
 
         run_cmd = first_config.get("run_cmd", first_agent)
         cmd = self._build_agent_command(first_agent, run_cmd, prompt)
-        docker_cmd = f"docker exec -it agentbox-{sandbox_name} {cmd}"
+        docker_cmd = self._build_docker_exec(first_agent, f"agentbox-{sandbox_name}", cmd)
         window_name = self.tmux_mgr.add_agent_window(
             session_name, f"compare-{first_agent}", docker_cmd, project_path
         )
@@ -390,7 +418,7 @@ class AgentRunner:
 
             run_cmd = agent_config.get("run_cmd", agent_id)
             cmd = self._build_agent_command(agent_id, run_cmd, prompt)
-            docker_cmd = f"docker exec -it agentbox-{sb_name} {cmd}"
+            docker_cmd = self._build_docker_exec(agent_id, f"agentbox-{sb_name}", cmd)
             self.tmux_mgr.add_agent_pane(
                 session_name, window_name, agent_id, docker_cmd, project_path
             )
@@ -453,7 +481,7 @@ class AgentRunner:
 
         # Create shell window: docker exec -it <container> bash
         mount_point = self.config.get("sandbox", {}).get("mount_point", "/workspace")
-        shell_cmd = f"docker exec -it {container_name} bash"
+        shell_cmd = self._build_docker_exec(agent_id, container_name, "bash")
         new_window_name = self.tmux_mgr.add_agent_window(
             session_name, f"shell-{agent_id}", shell_cmd, project_path
         )
@@ -504,8 +532,7 @@ class AgentRunner:
             return shell_window_name
 
         container_name = f"agentbox-{sandbox_name}"
-        mount_point = self.config.get("sandbox", {}).get("mount_point", "/workspace")
-        shell_cmd = f"docker exec -it {container_name} bash"
+        shell_cmd = self._build_docker_exec(agent_id, container_name, "bash")
 
         new_window_name = self.tmux_mgr.add_agent_window(
             session_name, f"shell-{agent_id}", shell_cmd, project_path
@@ -552,3 +579,12 @@ class AgentRunner:
         if agent_id == "aider":
             return f"{run_cmd} --message {quoted}"
         return f"{run_cmd} {quoted}"
+
+    def _build_docker_exec(self, agent_id: str, container_name: str, command: str) -> str:
+        """Build a docker exec command with env vars from agent config."""
+        agent_config = get_agent_config(self.config, agent_id) or {}
+        env_flags = _get_agent_env_flags(agent_id, agent_config)
+        env_str = " ".join(env_flags)
+        if env_str:
+            return f"docker exec -it {env_str} {container_name} {command}"
+        return f"docker exec -it {container_name} {command}"

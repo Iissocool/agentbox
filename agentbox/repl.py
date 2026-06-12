@@ -177,23 +177,17 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
     cmd_name = cmd.lstrip("/")
 
     if cmd_name in simple_agents and not args:
-        runner.run_agent(cmd_name, project_path, attach=False)
-        console.print("\n  [dim]💡 输入 [cyan]ag attach[/cyan] 连接到 tmux 会话[/dim]")
-        console.print("[dim]   或在另一个终端运行 [cyan]tmux attach -t ag-glm[/cyan][/dim]\n")
+        runner.run_agent(cmd_name, project_path)
     elif cmd_name == "run":
         agent_id = args[0] if args else None
         if not agent_id:
             agent_id = _interactive_agent_select(config)
         if agent_id:
             prompt = " ".join(args[1:]) if len(args) > 1 else None
-            runner.run_agent(agent_id, project_path, prompt=prompt, attach=False)
-            console.print("\n  [dim]💡 输入 [cyan]ag attach[/cyan] 连接到 tmux 会话[/dim]")
-            console.print("[dim]   或在另一个终端运行 [cyan]tmux attach -t ag-glm[/cyan][/dim]\n")
+            runner.run_agent(agent_id, project_path, prompt=prompt)
     elif cmd_name in simple_agents and args:
         prompt = " ".join(args)
-        runner.run_agent(cmd_name, project_path, prompt=prompt, attach=False)
-        console.print("\n  [dim]💡 输入 [cyan]ag attach[/cyan] 连接到 tmux 会话[/dim]")
-        console.print("[dim]   或在另一个终端运行 [cyan]tmux attach -t ag-glm[/cyan][/dim]\n")
+        runner.run_agent(cmd_name, project_path, prompt=prompt)
     elif cmd_name == "ask":
         question = " ".join(args) if args else None
         if not question:
@@ -268,13 +262,8 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
         from .cli import init
         ctx.invoke(init)
     elif cmd_name == "shell":
-        from .agents import AgentRunner
         target_agent = args[0] if args else "claude"
-        runner = AgentRunner(config)
-        # In REPL, don't attach to tmux (it breaks the REPL terminal)
-        runner.run_shell(target_agent, project_path, attach=False)
-        console.print("\n  [dim]💡 输入 [cyan]ag attach[/cyan] 连接到 tmux 会话[/dim]")
-        console.print("[dim]   或在另一个终端运行 [cyan]tmux attach -t ag-glm[/cyan][/dim]\n")
+        runner.run_shell(target_agent, project_path)
     elif cmd_name == "help":
         _print_help()
     elif cmd_name in ("exit", "quit", "q"):
@@ -384,9 +373,7 @@ def run_repl(ctx: Any) -> None:
                 first_word = user_input.split()[0].lower()
                 if first_word in config.get("agents", {}):
                     rest = user_input[len(first_word):].strip()
-                    runner.run_agent(first_word, ctx.obj["project_path"], prompt=rest or None, attach=False)
-                    console.print("\n  [dim]💡 输入 [cyan]ag attach[/cyan] 连接到 tmux 会话[/dim]")
-                    console.print("[dim]   或在另一个终端运行 [cyan]tmux attach -t ag-glm[/cyan][/dim]\n")
+                    runner.run_agent(first_word, ctx.obj["project_path"], prompt=rest or None)
                 else:
                     from .workflow import WorkflowEngine
                     engine = WorkflowEngine(config)
