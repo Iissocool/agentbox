@@ -13,7 +13,7 @@ DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.yaml"
 
 DEFAULT_CONFIG = {
     "sandbox": {
-        "base_image": "ubuntu:22.04",
+        "base_image": "agentbox-base:latest",
         "mount_point": "/workspace",
         "network": "agentbox-net",
         "auto_remove": True,

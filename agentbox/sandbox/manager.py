@@ -145,12 +145,6 @@ class SandboxManager:
                 install_cmd = agent_config.get("install_cmd", "")
                 if install_cmd:
                     console.print(f"[dim]Installing {agent_id} inside sandbox...[/dim]")
-                    self.exec_in_sandbox(name, ["bash", "-c",
-                        "apt-get update && apt-get install -y curl git build-essential 2>/dev/null || true"])
-                    if "npm" in install_cmd:
-                        self.exec_in_sandbox(name, ["bash", "-c",
-                            "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null && "
-                            "apt-get install -y nodejs 2>/dev/null || true"])
                     self.exec_in_sandbox(name, ["bash", "-c", install_cmd])
                     console.print(f"[green]✓ {agent_id} installed in sandbox[/green]")
                     # Cache the image
@@ -185,12 +179,6 @@ class SandboxManager:
                     install_cmd = agent_config.get("install_cmd", "")
                     if install_cmd:
                         console.print(f"[dim]Installing {agent_id} inside sandbox...[/dim]")
-                        self.exec_in_sandbox(name, ["bash", "-c",
-                            "apt-get update && apt-get install -y curl git build-essential 2>/dev/null || true"])
-                        if "npm" in install_cmd:
-                            self.exec_in_sandbox(name, ["bash", "-c",
-                                "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null && "
-                                "apt-get install -y nodejs 2>/dev/null || true"])
                         self.exec_in_sandbox(name, ["bash", "-c", install_cmd])
                         console.print(f"[green]✓ {agent_id} installed in sandbox[/green]")
                         target_image = agent_config.get("docker_image", f"agentbox-{agent_id}:latest")
@@ -213,16 +201,19 @@ class SandboxManager:
         # ── Strategy 3 & 4: Create new container ──
         needs_install = False
         if not self._image_exists(docker_image):
-            fallback_image = self.sandbox_config.get("base_image", "ubuntu:22.04")
-            if docker_image != fallback_image:
+            base_image = self.sandbox_config.get("base_image", "agentbox-base:latest")
+            if docker_image != base_image:
+                # Agent-specific image not found — try base image + install
                 console.print(f"[yellow]⚠ Image '{docker_image}' not found locally.[/yellow]")
-                console.print(f"[dim]Falling back to base image: {fallback_image}[/dim]")
+                # Ensure base image exists
+                self._ensure_base_image(base_image)
+                console.print(f"[dim]Using base image: {base_image}[/dim]")
                 console.print(f"[dim]Agent will be installed inside the container after startup.[/dim]")
-                docker_image = fallback_image
+                docker_image = base_image
                 needs_install = True
             else:
-                console.print(f"[yellow]⚠ Base image '{docker_image}' not found locally, pulling...[/yellow]")
-                self._pull_image(docker_image)
+                # This IS the base image — build it
+                self._ensure_base_image(base_image)
 
         # Build docker run command
         cmd = [
@@ -262,16 +253,7 @@ class SandboxManager:
             if needs_install:
                 install_cmd = agent_config.get("install_cmd", "")
                 if install_cmd:
-                    console.print(f"[dim]Installing {agent_id} inside sandbox (this may take a while)...[/dim]")
-                    # First install prerequisites
-                    self.exec_in_sandbox(name, ["bash", "-c",
-                        "apt-get update && apt-get install -y curl git build-essential 2>/dev/null || true"])
-                    # Install Node.js if needed (for npm-based agents)
-                    if "npm" in install_cmd:
-                        self.exec_in_sandbox(name, ["bash", "-c",
-                            "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - 2>/dev/null && "
-                            "apt-get install -y nodejs 2>/dev/null || true"])
-                    # Install the agent
+                    console.print(f"[dim]Installing {agent_id} inside sandbox...[/dim]")
                     self.exec_in_sandbox(name, ["bash", "-c", install_cmd])
 
                     # Verify installation succeeded
@@ -317,6 +299,36 @@ class SandboxManager:
         except FileNotFoundError:
             pass
         return "unknown"
+
+    def _ensure_base_image(self, base_image: str = "agentbox-base:latest") -> bool:
+        """Ensure the base image exists. Build from Dockerfile.base if not.
+
+        The base image contains Node.js, Python, Go, git, etc.
+        All agent images are built on top of it to share these dependencies.
+        """
+        if self._image_exists(base_image):
+            return True
+
+        console.print(f"[yellow]⚠ Base image '{base_image}' not found, building from Dockerfile.base...[/yellow]")
+        template_dir = Path(__file__).parent.parent / "templates" / "docker"
+        dockerfile_path = template_dir / "Dockerfile.base"
+
+        if not dockerfile_path.exists():
+            console.print(f"[red]Dockerfile.base not found at {dockerfile_path}[/red]")
+            return False
+
+        try:
+            console.print("[dim]Building base image (first time only, ~3-5 minutes)...[/dim]")
+            subprocess.run(
+                ["docker", "build", "-t", base_image, "-f", str(dockerfile_path), str(template_dir)],
+                check=True,
+            )
+            console.print(f"[green]✓ Base image built: {base_image}[/green]")
+            return True
+        except subprocess.CalledProcessError as e:
+            console.print(f"[red]Failed to build base image: {e}[/red]")
+            console.print("[dim]You can build it manually: ag build base[/dim]")
+            return False
 
     def _pull_image(self, image_name: str) -> bool:
         """Pull a Docker image from registry."""
@@ -493,30 +505,14 @@ class SandboxManager:
             return self._generate_agent_image(agent_id, image_name, install_cmd)
 
     def _generate_agent_image(self, agent_id: str, image_name: str, install_cmd: str) -> bool:
-        """Generate and build a Docker image for an agent."""
-        dockerfile = f"""FROM ubuntu:22.04
+        """Generate and build a Docker image for an agent on top of base image."""
+        base_image = self.sandbox_config.get("base_image", "agentbox-base:latest")
+        self._ensure_base_image(base_image)
 
-RUN apt-get update && apt-get install -y \\
-    curl git build-essential \\
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \\
-    && apt-get install -y nodejs
-
-# Install Python
-RUN apt-get update && apt-get install -y python3 python3-pip \\
-    && rm -rf /var/lib/apt/lists/*
+        dockerfile = f"""FROM {base_image}
 
 # Install the agent
 RUN {install_cmd}
-
-# Create workspace
-RUN mkdir -p /workspace
-WORKDIR /workspace
-
-# Keep container alive
-CMD ["tail", "-f", "/dev/null"]
 """
         # Write temporary Dockerfile
         import tempfile
