@@ -12,9 +12,13 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout.controls import BufferControl
+from prompt_toolkit.layout.containers import Window
+from prompt_toolkit.filters import Condition
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from rich.columns import Columns
 
 from . import __version__
 
@@ -23,32 +27,32 @@ console = Console()
 # ── Slash commands with Chinese descriptions ──
 
 SLASH_COMMANDS = [
-    # (command, description_zh, category)
-    ("/claude",    "启动 Claude Code 沙盒",           "Agent"),
-    ("/codex",     "启动 OpenAI Codex 沙盒",          "Agent"),
-    ("/aider",     "启动 Aider 沙盒",                 "Agent"),
-    ("/goose",     "启动 Goose 沙盒",                 "Agent"),
-    ("/opencode",  "启动 OpenCode 沙盒",              "Agent"),
-    ("/run",       "运行任意 Agent (需加名字)",        "Agent"),
-    ("/compose",   "多 Agent 角色组合协作",            "多Agent"),
-    ("/team",      "运行预定义团队",                   "多Agent"),
-    ("/compare",   "多个 Agent 并排对比",             "多Agent"),
-    ("/ask",       "快捷提问，一键启动 Agent",         "对话"),
-    ("/status",    "查看所有会话和沙盒状态",           "管理"),
-    ("/attach",    "重连到 tmux 会话",                "管理"),
-    ("/kill",      "停止会话和沙盒（保留数据）",       "管理"),
-    ("/logs",      "查看沙盒日志",                     "管理"),
-    ("/history",   "查看会话历史",                     "管理"),
-    ("/diff",      "查看 Git 改动摘要",               "工作流"),
-    ("/merge",     "暂存并提交所有改动",              "工作流"),
-    ("/review",    "审查改动+测试+合并/丢弃",         "工作流"),
-    ("/test",      "运行项目测试",                     "工作流"),
-    ("/pipeline",  "多步流水线编排",                   "流水线"),
-    ("/list",      "列出可用 Agent 和团队",           "配置"),
-    ("/config",    "查看/编辑配置",                    "配置"),
-    ("/init",      "初始化项目 AGENTS.md",            "配置"),
-    ("/help",      "显示帮助信息",                     "其他"),
-    ("/quit",      "退出 Agentbox",                   "其他"),
+    # (command, description_zh, category, usage_hint)
+    ("/claude",    "启动 Claude Code 沙盒",           "🤖 Agent",   ""),
+    ("/codex",     "启动 OpenAI Codex 沙盒",          "🤖 Agent",   ""),
+    ("/aider",     "启动 Aider 沙盒",                 "🤖 Agent",   ""),
+    ("/goose",     "启动 Goose 沙盒",                 "🤖 Agent",   ""),
+    ("/opencode",  "启动 OpenCode 沙盒",              "🤖 Agent",   ""),
+    ("/run",       "运行任意 Agent",                   "🤖 Agent",   "<agent>"),
+    ("/compose",   "多 Agent 角色组合协作",            "👥 多Agent", "claude:coder codex:reviewer"),
+    ("/team",      "运行预定义团队",                   "👥 多Agent", "<team_id>"),
+    ("/compare",   "多个 Agent 并排对比",             "👥 多Agent", "claude codex"),
+    ("/ask",       "快捷提问，一键启动 Agent",         "💬 对话",    "\"你的问题\""),
+    ("/status",    "查看所有会话和沙盒状态",           "📊 管理",    ""),
+    ("/attach",    "重连到 tmux 会话",                "📊 管理",    "[session]"),
+    ("/kill",      "停止会话和沙盒",                   "📊 管理",    "[session]"),
+    ("/logs",      "查看沙盒日志",                     "📊 管理",    "[sandbox]"),
+    ("/history",   "查看会话历史",                     "📊 管理",    ""),
+    ("/diff",      "查看 Git 改动摘要",               "🔧 工作流",  ""),
+    ("/merge",     "暂存并提交所有改动",              "🔧 工作流",  "-m \"msg\""),
+    ("/review",    "审查改动+测试+合并/丢弃",         "🔧 工作流",  ""),
+    ("/test",      "运行项目测试",                     "🔧 工作流",  ""),
+    ("/pipeline",  "多步流水线编排",                   "🧠 流水线",  "dev \"任务\""),
+    ("/list",      "列出可用 Agent 和团队",           "⚙️ 配置",    ""),
+    ("/config",    "查看/编辑配置",                    "⚙️ 配置",    "show|edit|reset"),
+    ("/init",      "初始化项目 AGENTS.md",            "⚙️ 配置",    ""),
+    ("/help",      "显示帮助信息",                     "❓ 其他",    ""),
+    ("/quit",      "退出 Agentbox",                   "❓ 其他",    ""),
 ]
 
 
@@ -57,56 +61,97 @@ class SlashCommandCompleter(Completer):
 
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
-        # Only complete when input starts with /
         if not text.startswith("/"):
             return
 
         word = text.lower()
-
-        for cmd, desc, cat in SLASH_COMMANDS:
+        for cmd, desc, cat, usage in SLASH_COMMANDS:
             if cmd.lower().startswith(word):
-                # Show command as completion, description in meta
+                display_text = f"{cmd}"
+                if usage:
+                    display_text += f" {usage}"
+                meta = f"{cat}  {desc}"
                 yield Completion(
                     cmd,
                     start_position=-len(text),
-                    display=f"{cmd}",
-                    display_meta=f"[{cat}] {desc}",
+                    display=display_text,
+                    display_meta=meta,
                 )
 
 
-def _print_splash() -> None:
-    """Print the Agentbox splash screen."""
-    splash = r"""
-     _                 _           _
-    / \   __ _ ___ ___| |__   __ _(_)_ __
-   / _ \ / _` / __/ __| '_ \ / _` | | '_ \
-  / ___ \ (_| \__ \__ \ |_) | (_| | | | | |
- /_/   \_\__,_|___/___/_.__/ \__,_|_|_| |_|
+def _build_key_bindings() -> KeyBindings:
+    """Custom key bindings: Enter during completion only accepts, doesn't submit."""
+    kb = KeyBindings()
 
-    """
-    text = Text(splash, style="bold cyan")
-    console.print(text)
-    console.print(f"  [bold]v{__version__}[/bold]  [dim]— AI Agent 编排沙盒[/dim]")
+    @kb.add("enter", filter=Condition(lambda: bool(
+        _get_app().current_buffer.complete_state
+    )))
+    def _accept_completion(event):
+        """When completion menu is visible, Enter only accepts the completion."""
+        event.current_buffer.complete_state.current_completion \
+            and event.current_buffer.apply_completion(
+                event.current_buffer.complete_state.current_completion
+            )
+
+    return kb
+
+
+def _get_app():
+    """Helper to get the current prompt_toolkit app."""
+    from prompt_toolkit.application import get_app
+    return get_app()
+
+
+def _print_splash() -> None:
+    """Print the Agentbox splash screen with elegant styling."""
+    # ASCII art
+    splash_lines = [
+        "     _                 _           _       ",
+        "    / \\   __ _ ___ ___| |__   __ _(_)_ __  ",
+        "   / _ \\ / _` / __/ __| '_ \\ / _` | | '_ \\ ",
+        "  / ___ \\ (_| \\__ \\__ \\ |_) | (_| | | | | |",
+        " /_/   \\_\\__,_|___/___/_.__/ \\__,_|_|_| |_|",
+    ]
+
     console.print()
-    console.print("  [dim]输入命令开始使用 | 输入[/dim] [cyan]/[/cyan] [dim]查看所有命令 |[/dim] [cyan]/quit[/cyan] [dim]退出[/dim]")
+    for line in splash_lines:
+        console.print(f"  [bold cyan]{line}[/bold cyan]")
+
+    console.print()
+    console.print(f"  [bold white]Agentbox[/bold white] [dim]v{__version__}[/dim]  [dim]·[/dim]  [italic]AI Agent 编排沙盒[/italic]")
+    console.print()
+    console.print("  ──────────────────────────────────────────")
+    console.print()
+    console.print(f"  [dim]💡[/dim]  输入 [bold cyan]/[/bold cyan] 查看所有命令  [dim]·[/dim]  [bold cyan]↑↓[/bold cyan] 选择  [dim]·[/dim]  [bold cyan]↵[/bold cyan] 补全  [dim]·[/dim]  再 [bold cyan]↵[/bold cyan] 执行")
+    console.print(f"  [dim]💡[/dim]  直接输入 [bold]claude[/bold] 启动 Agent  [dim]·[/dim]  输入问题自动提问")
+    console.print(f"  [dim]💡[/dim]  [bold]Ctrl+C[/bold] 取消  [dim]·[/dim]  [bold]Ctrl+D[/bold] 或 [bold cyan]/quit[/bold cyan] 退出")
     console.print()
 
 
 def _print_help() -> None:
-    """Print quick help."""
-    console.print("\n[bold cyan]🧊 Agentbox 命令列表[/bold cyan]")
-    console.print("[dim]输入 / 前缀可触发自动补全，方向键选择，回车补全，再回车执行[/dim]\n")
+    """Print elegant help."""
+    console.print()
+    console.print(Panel(
+        "[bold cyan]🧊 Agentbox 命令列表[/bold cyan]\n\n"
+        "[dim]输入 / 前缀触发补全 · ↑↓ 选择 · 回车补全 · 再回车执行[/dim]",
+        border_style="dim",
+        padding=(0, 2),
+    ))
 
-    # Group by category
-    categories: dict[str, list[tuple[str, str]]] = {}
-    for cmd, desc, cat in SLASH_COMMANDS:
-        categories.setdefault(cat, []).append((cmd, desc))
+    categories: dict[str, list[tuple[str, str, str]]] = {}
+    for cmd, desc, cat, usage in SLASH_COMMANDS:
+        categories.setdefault(cat, []).append((cmd, desc, usage))
 
     for cat, cmds in categories.items():
-        console.print(f"  [bold]{cat}[/bold]")
-        for cmd, desc in cmds:
-            console.print(f"    [cyan]{cmd:<14}[/cyan] {desc}")
-        console.print()
+        console.print(f"\n  [bold]{cat}[/bold]")
+        console.print("  " + "─" * 42)
+        for cmd, desc, usage in cmds:
+            cmd_display = f"[cyan]{cmd}[/cyan]"
+            if usage:
+                cmd_display += f" [dim]{usage}[/dim]"
+            console.print(f"  {cmd_display:<30} {desc}")
+
+    console.print()
 
 
 def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
@@ -118,8 +163,7 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
     cmd = parts[0].lower()
     args = parts[1:]
 
-    # Import here to avoid circular imports
-    from .cli import _execute_palette_choice, _interactive_agent_select
+    from .cli import _interactive_agent_select, _parse_agent_role
     from .config import list_teams
     from .agents import AgentRunner
 
@@ -127,7 +171,6 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
     project_path = ctx.obj["project_path"]
     runner = AgentRunner(config)
 
-    # Map slash commands to palette choices
     simple_agents = {"claude", "codex", "aider", "goose", "opencode"}
     cmd_name = cmd.lstrip("/")
 
@@ -141,7 +184,6 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
             prompt = " ".join(args[1:]) if len(args) > 1 else None
             runner.run_agent(agent_id, project_path, prompt=prompt)
     elif cmd_name in simple_agents and args:
-        # e.g. /claude -p "fix bug"
         prompt = " ".join(args)
         runner.run_agent(cmd_name, project_path, prompt=prompt)
     elif cmd_name == "ask":
@@ -155,7 +197,6 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
         if not args:
             specs_str = click_prompt("输入组合 (如 claude:coder codex:reviewer)")
             args = specs_str.strip().split()
-        from .cli import _parse_agent_role
         composition = [_parse_agent_role(s) for s in args]
         runner.run_compose(composition, project_path)
     elif cmd_name == "team":
@@ -221,10 +262,10 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
     elif cmd_name == "help":
         _print_help()
     elif cmd_name in ("quit", "exit", "q"):
-        console.print("[dim]👋 再见！[/dim]")
+        console.print("\n  [dim]👋 再见！[/dim]\n")
         return False
     else:
-        console.print(f"[red]未知命令: {cmd}[/red]  [dim]输入 / 查看所有命令[/dim]")
+        console.print(f"\n  [red]✘ 未知命令:[/red] {cmd}  [dim]输入 / 查看所有命令[/dim]\n")
 
     return True
 
@@ -232,7 +273,7 @@ def _execute_slash_command(ctx: Any, raw_input: str) -> bool:
 def click_prompt(msg: str, default: str = "") -> str:
     """Simple prompt fallback."""
     try:
-        val = input(f"{msg}: ").strip()
+        val = input(f"  {msg}: ").strip()
         return val or default
     except (EOFError, KeyboardInterrupt):
         return default
@@ -242,24 +283,29 @@ def run_repl(ctx: Any) -> None:
     """Run the interactive Agentbox REPL."""
     _print_splash()
 
+    kb = _build_key_bindings()
+
     session: PromptSession = PromptSession(
         history=InMemoryHistory(),
         completer=SlashCommandCompleter(),
         auto_suggest=AutoSuggestFromHistory(),
         complete_while_typing=True,
         multiline=False,
-        prompt_continuation="... ",
+        key_bindings=kb,
     )
 
     project_name = os.path.basename(ctx.obj["project_path"])
 
     while True:
         try:
-            # Build the prompt: 🧊 project >
+            # Elegant prompt: ╭─ 🧊 project ─╮  ...  ╰──────────────╯
+            # prompt_toolkit prompt
             prompt_text = FormattedText([
                 ("bold cyan", "🧊 "),
-                ("bold green", f"{project_name}"),
-                ("", " > "),
+                ("bold green", project_name),
+                ("", " "),
+                ("dim", "›"),
+                ("", " "),
             ])
 
             user_input = session.prompt(prompt_text)
@@ -274,30 +320,24 @@ def run_repl(ctx: Any) -> None:
                 if not _execute_slash_command(ctx, user_input):
                     break
             else:
-                # Non-slash input: treat as a quick agent launch or ask
-                # e.g. "claude" → run claude, "fix the bug" → ask claude
+                # Non-slash input
                 from .agents import AgentRunner
-                from .config import get_agent_config
 
                 config = ctx.obj["config"]
                 runner = AgentRunner(config)
 
                 first_word = user_input.split()[0].lower()
                 if first_word in config.get("agents", {}):
-                    # Direct agent name
                     rest = user_input[len(first_word):].strip()
                     runner.run_agent(first_word, ctx.obj["project_path"], prompt=rest or None)
                 else:
-                    # Treat as a question to default agent
                     from .workflow import WorkflowEngine
                     engine = WorkflowEngine(config)
                     engine.ask(prompt=user_input, agent_id="claude", project_path=ctx.obj["project_path"])
 
         except KeyboardInterrupt:
-            # Ctrl+C — show hint, don't exit
-            console.print("\n[dim]按 Ctrl+D 或输入 /quit 退出[/dim]")
+            console.print("\n  [dim]按 Ctrl+D 或输入 /quit 退出[/dim]")
             continue
         except EOFError:
-            # Ctrl+D — exit
-            console.print("\n[dim]👋 再见！[/dim]")
+            console.print("\n  [dim]👋 再见！[/dim]\n")
             break
