@@ -127,15 +127,14 @@ def _splash() -> None:
     console.print(f"  [bold {GOLD}]{_BANNER}[/]")
 
     # ── Sovereign title bar ──
-    console.print(f"  [{GOLD}]◈ ──[/]  [bold {GOLD_LIGHT}]AGENTBOX[/] [{SILVER}]v{__version__}[/]")
-    console.print(f"  [{GOLD}]│[/]")
-    console.print(f"  [{GOLD}]│[/]  [{PEARL}]AI Agent Orchestration Sandbox[/]")
+    console.print(f"  [{GOLD}]◈ ──[/]  [bold {GOLD_LIGHT}]AGENTBOX[/] [{SILVER}]v{__version__}[/]  [{GOLD}]──[/]  [{PEARL}]AI Agent Orchestration Sandbox[/]")
     console.print(f"  [{GOLD}]│[/]")
 
-    # ── Navigation guide — refined ──
-    console.print(f"  [{GOLD}]├─[/]  [{SILVER}]Commands[/]   [{GOLD_DIM}]┄[/]  [{PEARL}]/[/][{SILVER}] 查看命令[/]  [{GOLD_DIM}]┄[/]  [{PEARL}]↑↓[/][{SILVER}] 选择[/]  [{GOLD_DIM}]┄[/]  [{PEARL}]↵[/][{SILVER}] 执行[/]")
-    console.print(f"  [{GOLD}]├─[/]  [{SILVER}]Agent[/]      [{GOLD_DIM}]┄[/]  [{PEARL}]claude[/][{SILVER}] 启动沙盒[/]  [{GOLD_DIM}]┄[/]  [{SILVER}]直接提问自动执行[/]")
-    console.print(f"  [{GOLD}]╰─[/]  [{SILVER}]Session[/]    [{GOLD_DIM}]┄[/]  [{PEARL}]Ctrl+C[/][{SILVER}] 取消[/]  [{GOLD_DIM}]┄[/]  [{PEARL}]Ctrl+D[/][{SILVER}] 或[/]  [{PEARL}]/exit[/][{SILVER}] 退出[/]")
+    # ── Status: available agents ──
+    agents = ["claude", "codex", "aider", "goose", "opencode"]
+    console.print(f"  [{GOLD}]├─[/]  [{SILVER}]Agents[/]     [{GOLD_DIM}]┄[/]  [{GOLD_LIGHT}]{', '.join(agents)}[/]")
+    console.print(f"  [{GOLD}]├─[/]  [{SILVER}]Features[/]   [{GOLD_DIM}]┄[/]  [{PEARL}]多Agent协作 · 流水线编排 · 并排对比 · 沙盒隔离[/]")
+    console.print(f"  [{GOLD}]╰─[/]  [{SILVER}]Runtime[/]    [{GOLD_DIM}]┄[/]  [{PEARL}]Docker[/]  [{GOLD_DIM}]·[/]  [{PEARL}]tmux[/]  [{GOLD_DIM}]·[/]  [{PEARL}]Git[/]")
 
     # ── Bottom gold filigree line ──
     console.print(f"  [{GOLD_DIM}]▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁[/]")
