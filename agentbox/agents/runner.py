@@ -16,34 +16,6 @@ from ..sandbox import SandboxManager
 from ..state import register_window, unregister_session
 from ..tmux_mgr import TmuxManager
 
-
-def _get_agent_env_flags(agent_id: str, agent_config: dict) -> list[str]:
-    """Build docker exec -e flags from agent config + Claude settings.json."""
-    import json
-    from pathlib import Path
-
-    env_flags = []
-    env_var_names = agent_config.get("env_vars", [])
-
-    # Read from Claude settings.json
-    extra_env = {}
-    if agent_id == "claude":
-        settings_path = Path.home() / ".claude" / "settings.json"
-        if settings_path.exists():
-            try:
-                with open(settings_path) as f:
-                    settings = json.loads(f.read())
-                extra_env = settings.get("env", {})
-            except (json.JSONDecodeError, OSError):
-                pass
-
-    for var_name in env_var_names:
-        val = extra_env.get(var_name) or os.environ.get(var_name, "")
-        if val:
-            env_flags.extend(["-e", f"{var_name}={val}"])
-
-    return env_flags
-
 console = Console()
 
 
@@ -581,10 +553,5 @@ class AgentRunner:
         return f"{run_cmd} {quoted}"
 
     def _build_docker_exec(self, agent_id: str, container_name: str, command: str) -> str:
-        """Build a docker exec command with env vars from agent config."""
-        agent_config = get_agent_config(self.config, agent_id) or {}
-        env_flags = _get_agent_env_flags(agent_id, agent_config)
-        env_str = " ".join(env_flags)
-        if env_str:
-            return f"docker exec -it {env_str} {container_name} {command}"
+        """Build a clean docker exec command (no env injection)."""
         return f"docker exec -it {container_name} {command}"

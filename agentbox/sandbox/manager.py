@@ -1,7 +1,5 @@
 """Docker sandbox manager - create, manage, and destroy isolated agent environments."""
 
-import json
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -105,7 +103,6 @@ class SandboxManager:
         agent_id: str,
         project_path: str | None = None,
         image: str | None = None,
-        env_vars: dict[str, str] | None = None,
     ) -> dict[str, str]:
         """Create or reuse a sandbox container for an agent.
 
@@ -160,9 +157,6 @@ class SandboxManager:
                     target_image = agent_config.get("docker_image", f"agentbox-{agent_id}:latest")
                     self._commit_container_as_image(container_name, target_image)
 
-            # Inject config for reused containers (env vars + config files)
-            self._inject_agent_config(container_name, agent_id, agent_config)
-
             console.print(f"[green]✓ Reusing running sandbox:[/green] {container_name} ({container_id})")
             return {
                 "container_id": container_id,
@@ -201,9 +195,6 @@ class SandboxManager:
                         console.print(f"[green]✓ {agent_id} installed in sandbox[/green]")
                         target_image = agent_config.get("docker_image", f"agentbox-{agent_id}:latest")
                         self._commit_container_as_image(container_name, target_image)
-
-                # Inject config for restarted containers
-                self._inject_agent_config(container_name, agent_id, agent_config)
 
                 console.print(f"[green]✓ Restarted sandbox:[/green] {container_name} ({container_id})")
                 return {
@@ -249,40 +240,6 @@ class SandboxManager:
         if project_path:
             abs_path = str(Path(project_path).resolve())
             cmd.extend(["-v", f"{abs_path}:{mount_point}"])
-
-        # Mount agent config directories (e.g., ~/.claude for Claude Code settings)
-        agent_config_dirs = agent_config.get("config_dirs", [])
-        if not agent_config_dirs and agent_id == "claude":
-            agent_config_dirs = ["~/.claude"]
-        for config_dir in agent_config_dirs:
-            expanded = Path(config_dir).expanduser().resolve()
-            if expanded.exists():
-                basename = expanded.name
-                cmd.extend(["-v", f"{expanded}:/root/{basename}"])
-
-        # Pass environment variables from host
-        # First, try to read from agent-specific config files (e.g., Claude settings.json)
-        agent_env_vars = agent_config.get("env_vars", [])
-        all_env = env_vars or {}
-
-        # Read env vars from Claude settings.json if available
-        if agent_id == "claude":
-            claude_settings_path = Path.home() / ".claude" / "settings.json"
-            if claude_settings_path.exists():
-                try:
-                    with open(claude_settings_path) as f:
-                        settings = json.loads(f.read())
-                    claude_env = settings.get("env", {})
-                    for k, v in claude_env.items():
-                        if k not in all_env:
-                            all_env[k] = v
-                except (json.JSONDecodeError, OSError):
-                    pass
-
-        for var_name in agent_env_vars:
-            val = all_env.get(var_name) or os.environ.get(var_name, "")
-            if val:
-                cmd.extend(["-e", f"{var_name}={val}"])
 
         cmd.append(docker_image)
         cmd.extend(["tail", "-f", "/dev/null"])
@@ -347,74 +304,6 @@ class SandboxManager:
             else:
                 console.print(f"[red]Failed to create sandbox: {error_msg}[/red]")
             return {}
-
-    def _inject_agent_config(self, container_name: str, agent_id: str, agent_config: dict) -> None:
-        """Inject config files and env vars into an existing (reused/restarted) container.
-
-        For containers created without the latest config (e.g., before env_vars were added),
-        this ensures they get the correct settings by:
-        1. Copying config directories into the container (e.g., ~/.claude → /root/.claude)
-        2. Writing env vars to /etc/profile.d/agentbox.sh so they're available in bash
-        """
-        # ── Copy config directories into container ──
-        agent_config_dirs = agent_config.get("config_dirs", [])
-        if not agent_config_dirs and agent_id == "claude":
-            agent_config_dirs = ["~/.claude"]
-
-        for config_dir in agent_config_dirs:
-            expanded = Path(config_dir).expanduser().resolve()
-            if expanded.exists():
-                basename = expanded.name
-                target_path = f"/root/{basename}"
-                # Check if already exists in container
-                check = subprocess.run(
-                    ["docker", "exec", container_name, "test", "-d", target_path],
-                    capture_output=True, text=True,
-                )
-                if check.returncode != 0:
-                    # Copy the config directory into the container
-                    try:
-                        subprocess.run(
-                            ["docker", "cp", str(expanded), f"{container_name}:{target_path}"],
-                            capture_output=True, text=True, check=True,
-                        )
-                        console.print(f"[dim]📋 Copied {basename} config into container[/dim]")
-                    except subprocess.CalledProcessError:
-                        pass
-
-        # ── Write env vars to /etc/profile.d/agentbox.sh ──
-        agent_env_vars = agent_config.get("env_vars", [])
-        env_lines = []
-
-        # Read from Claude settings.json if applicable
-        extra_env = {}
-        if agent_id == "claude":
-            claude_settings_path = Path.home() / ".claude" / "settings.json"
-            if claude_settings_path.exists():
-                try:
-                    with open(claude_settings_path) as f:
-                        settings = json.loads(f.read())
-                    extra_env = settings.get("env", {})
-                except (json.JSONDecodeError, OSError):
-                    pass
-
-        for var_name in agent_env_vars:
-            val = extra_env.get(var_name) or os.environ.get(var_name, "")
-            if val:
-                env_lines.append(f'export {var_name}="{val}"')
-
-        if env_lines:
-            profile_content = "# Auto-injected by agentbox\n" + "\n".join(env_lines) + "\n"
-            # Write the profile script into the container
-            try:
-                subprocess.run(
-                    ["docker", "exec", container_name, "bash", "-c",
-                     f"cat > /etc/profile.d/agentbox.sh << 'AGENTBOX_EOF'\n{profile_content}AGENTBOX_EOF"],
-                    capture_output=True, text=True, check=True,
-                )
-                console.print(f"[dim]🔧 Injected {len(env_lines)} env vars into container[/dim]")
-            except subprocess.CalledProcessError:
-                pass
 
     def _get_container_id(self, container_name: str) -> str:
         """Get short container ID from container name."""
