@@ -203,14 +203,20 @@ class SandboxManager:
         if not self._image_exists(docker_image):
             base_image = self.sandbox_config.get("base_image", "agentbox-base:latest")
             if docker_image != base_image:
-                # Agent-specific image not found — try base image + install
+                # Agent-specific image not found — try Dockerfile build first (reliable, cached)
                 console.print(f"[yellow]⚠ Image '{docker_image}' not found locally.[/yellow]")
-                # Ensure base image exists
-                self._ensure_base_image(base_image)
-                console.print(f"[dim]Using base image: {base_image}[/dim]")
-                console.print(f"[dim]Agent will be installed inside the container after startup.[/dim]")
-                docker_image = base_image
-                needs_install = True
+
+                if self.build_agent_image(agent_id):
+                    # Dockerfile build succeeded — use the freshly built image
+                    docker_image = agent_config.get("docker_image", f"agentbox-{agent_id}:latest")
+                    console.print(f"[green]✓ Agent image built: {docker_image}[/green]")
+                else:
+                    # Fallback: base image + install inside container
+                    self._ensure_base_image(base_image)
+                    console.print(f"[dim]Using base image: {base_image}[/dim]")
+                    console.print(f"[dim]Agent will be installed inside the container after startup.[/dim]")
+                    docker_image = base_image
+                    needs_install = True
             else:
                 # This IS the base image — build it
                 self._ensure_base_image(base_image)
