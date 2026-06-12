@@ -273,15 +273,9 @@ def run_repl(ctx: Any) -> None:
 
     def _prompt():
         return FormattedText([
-            # Top line: ╭── ◈ project ──╮
-            (f"bold {GOLD_DIM}", "╭── "),
             (f"bold {GOLD}", "◈ "),
-            (f"{ELECTRIC}", project),
-            (f"bold {GOLD_DIM}", " ──╯"),
-            ("", "\n"),
-            # Input line: │ ›
-            (f"{GOLD_DIM}", "│ "),
-            (f"bold {GOLD}", "› "),
+            (f"{GOLD_LIGHT}", project),
+            (f"bold {GOLD}", " › "),
         ])
 
     def _toolbar():
