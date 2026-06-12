@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 from typing import Any
 
 from rich.console import Console
@@ -141,33 +142,25 @@ class TmuxManager:
     def attach_session(self, session_name: str) -> int:
         """Attach to a tmux session.
 
-        If already inside tmux, uses switch-client to avoid nesting.
-        Otherwise uses attach-session normally.
+        Uses os.execvp to replace the current process with tmux,
+        giving it full terminal control. This is necessary because
+        subprocess.run doesn't work well when another library
+        (like prompt_toolkit) controls the terminal.
+
+        When the user detaches (Ctrl+B D), they return to their shell.
         """
         try:
+            # Restore terminal to sane state before exec
+            # (prompt_toolkit leaves it in raw mode)
+            subprocess.run(["stty", "sane"], check=False)
+
             if os.environ.get("TMUX"):
                 # Already inside tmux — switch client instead of nesting
-                console.print(
-                    f"[dim]Already inside tmux — switching to {session_name} "
-                    f"(Ctrl+B then ( to switch back)[/dim]"
-                )
-                result = subprocess.run(
-                    ["tmux", "switch-client", "-t", session_name]
-                )
-                if result.returncode != 0:
-                    console.print(
-                        f"[yellow]switch-client failed. Try manually:[/yellow]\n"
-                        f"  tmux switch-client -t {session_name}\n"
-                        f"  tmux attach-session -t {session_name}"
-                    )
-                return result.returncode
-            result = subprocess.run(["tmux", "attach-session", "-t", session_name])
-            if result.returncode != 0:
-                console.print(
-                    f"[yellow]attach failed. Try manually:[/yellow]\n"
-                    f"  tmux attach-session -t {session_name}"
-                )
-            return result.returncode
+                os.execvp("tmux", ["tmux", "switch-client", "-t", session_name])
+            else:
+                os.execvp("tmux", ["tmux", "attach-session", "-t", session_name])
+            # os.execvp replaces the process, so we never reach here
+            return 0
         except FileNotFoundError:
             console.print("[red]tmux not found[/red]")
             return 1
