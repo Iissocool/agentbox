@@ -239,11 +239,11 @@ def _exec(ctx: Any, raw: str) -> bool:
 #  PROMPT_TOOLKIT STYLE — Sovereign Terminal
 # ═══════════════════════════════════════════════════════════════
 _style = PtStyle.from_dict({
-    # Completion menu — gold sovereign theme
-    "completion-menu":                          f"bg:#0d1520 {GOLD_LIGHT}",
-    "completion-menu.completion":               f"bg:#0d1520 {GOLD_LIGHT}",
+    # Completion menu — warm gold sovereign theme
+    "completion-menu":                          f"bg:#14100a {GOLD_LIGHT}",
+    "completion-menu.completion":               f"bg:#14100a {GOLD_LIGHT}",
     "completion-menu.completion.current":       f"bg:#2a1f10 {WHITE} bold",
-    "completion-menu.meta":                     f"bg:#0d1520 {GOLD_DIM}",
+    "completion-menu.meta":                     f"bg:#14100a {GOLD_DIM}",
     "completion-menu.completion.current meta":  f"bg:#2a1f10 {GOLD}",
     # Scrollbar
     "scrollbar":                                f"bg:#0d1520",
