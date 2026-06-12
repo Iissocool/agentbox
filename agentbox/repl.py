@@ -267,8 +267,8 @@ _style = PtStyle.from_dict({
     "scrollbar.button":                         f"bg:{GOLD}",
     # Auto-suggestion
     "auto-suggestion":                          f"{NAVY_LIGHT}",
-    # Bottom toolbar — deep navy, gold text
-    "bottom-toolbar":                           f"bg:{NAVY} {GOLD}",
+    # Bottom toolbar — visible navy, gold text
+    "bottom-toolbar":                           f"bg:#1a3050 {GOLD}",
 })
 
 
@@ -301,33 +301,35 @@ def run_repl(ctx: Any) -> None:
             (f"bold {GOLD}", "› "),
         ])
 
+    TBG = "#1a3050"  # Toolbar bg — visible navy blue
+
     def _toolbar():
         return FormattedText([
             # ── Left: Navigation ──
-            (f"bg:{NAVY} {GOLD}", "  ◈  "),
-            (f"bg:{NAVY} {PEARL}", "/ "),
-            (f"bg:{NAVY} {SILVER}", "命令  "),
-            (f"bg:{NAVY} {GOLD_DIM}", "·  "),
-            (f"bg:{NAVY} {PEARL}", "↑↓ "),
-            (f"bg:{NAVY} {SILVER}", "选择  "),
-            (f"bg:{NAVY} {GOLD_DIM}", "·  "),
-            (f"bg:{NAVY} {PEARL}", "↵ "),
-            (f"bg:{NAVY} {SILVER}", "执行  "),
+            (f"bg:{TBG} {GOLD}", "  ◈  "),
+            (f"bg:{TBG} {GOLD_LIGHT}", "/ "),
+            (f"bg:{TBG} {PEARL}", "命令  "),
+            (f"bg:{TBG} {ELECTRIC}", "·  "),
+            (f"bg:{TBG} {GOLD_LIGHT}", "↑↓ "),
+            (f"bg:{TBG} {PEARL}", "选择  "),
+            (f"bg:{TBG} {ELECTRIC}", "·  "),
+            (f"bg:{TBG} {GOLD_LIGHT}", "↵ "),
+            (f"bg:{TBG} {PEARL}", "执行  "),
             # ── Divider ──
-            (f"bg:{NAVY} {GOLD_DIM}", "│  "),
+            (f"bg:{TBG} {ROYAL}", "│  "),
             # ── Center: Agent ──
-            (f"bg:{NAVY} {PEARL}", "claude "),
-            (f"bg:{NAVY} {SILVER}", "启动  "),
-            (f"bg:{NAVY} {GOLD_DIM}", "·  "),
-            (f"bg:{NAVY} {SILVER}", "提问即执行  "),
+            (f"bg:{TBG} {GOLD_LIGHT}", "claude "),
+            (f"bg:{TBG} {PEARL}", "启动  "),
+            (f"bg:{TBG} {ELECTRIC}", "·  "),
+            (f"bg:{TBG} {PEARL}", "提问即执行  "),
             # ── Divider ──
-            (f"bg:{NAVY} {GOLD_DIM}", "│  "),
+            (f"bg:{TBG} {ROYAL}", "│  "),
             # ── Right: Session ──
-            (f"bg:{NAVY} {PEARL}", "⌃C "),
-            (f"bg:{NAVY} {SILVER}", "取消  "),
-            (f"bg:{NAVY} {GOLD_DIM}", "·  "),
-            (f"bg:{NAVY} {PEARL}", "/exit "),
-            (f"bg:{NAVY} {SILVER}", "退出  "),
+            (f"bg:{TBG} {GOLD_LIGHT}", "⌃C "),
+            (f"bg:{TBG} {PEARL}", "取消  "),
+            (f"bg:{TBG} {ELECTRIC}", "·  "),
+            (f"bg:{TBG} {GOLD_LIGHT}", "/exit "),
+            (f"bg:{TBG} {PEARL}", "退出  "),
         ])
 
     while True:
