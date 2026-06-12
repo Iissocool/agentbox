@@ -131,6 +131,28 @@ def cleanup_stale_sessions(active_tmux_sessions: list[str]) -> int:
     return removed
 
 
+def cleanup_stale_windows(session_name: str, active_windows: list[str]) -> int:
+    """Remove state entries for windows that no longer exist in tmux.
+
+    Returns the number of cleaned up windows.
+    """
+    state = load_state()
+    removed = 0
+
+    if session_name in state["sessions"]:
+        windows = state["sessions"][session_name].get("windows", {})
+        stale = [w for w in list(windows.keys()) if w not in active_windows]
+        for w in stale:
+            del windows[w]
+            removed += 1
+        if not windows:
+            del state["sessions"][session_name]
+        if removed > 0:
+            save_state(state)
+
+    return removed
+
+
 def recover_orphaned_sessions() -> int:
     """Recover sessions that exist in tmux/Docker but not in state.
 

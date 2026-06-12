@@ -34,7 +34,7 @@ from .config import (
 from .sandbox import SandboxManager
 from .orchestrator import Orchestrator, Pipeline, PipelineStep
 from .orchestrator.pipeline import StepType, dev_pipeline, research_pipeline, compare_pipeline
-from .state import cleanup_stale_sessions, get_session_info, list_all_sessions, recover_orphaned_sessions, unregister_session
+from .state import cleanup_stale_sessions, cleanup_stale_windows, get_session_info, list_all_sessions, recover_orphaned_sessions, unregister_session
 from .tmux_mgr import TmuxManager
 from .workflow import WorkflowEngine
 
@@ -382,16 +382,32 @@ def status(ctx: click.Context) -> None:
     active_sessions = tmux_mgr.list_sessions()
     active_names = [s["name"] for s in active_sessions]
     cleaned = cleanup_stale_sessions(active_names)
+
+    # Cleanup stale windows within active sessions
+    for s in active_sessions:
+        try:
+            windows = tmux_mgr.list_windows(s["name"])
+            active_window_names = [w["name"] for w in windows]
+            stale_w = cleanup_stale_windows(s["name"], active_window_names)
+            if stale_w > 0:
+                cleaned += stale_w
+        except Exception:
+            pass
+
     if cleaned > 0:
-        console.print(f"[dim]Cleaned up {cleaned} stale session(s)[/dim]")
+        console.print(f"[dim]Cleaned up {cleaned} stale session/window(s)[/dim]")
 
     all_state = list_all_sessions()
     sandboxes = sandbox_mgr.list_sandboxes()
 
     # ── Summary panel ──
+    # Count agents (exclude shell windows)
     n_sessions = len(active_sessions)
     n_sandboxes = len([sb for sb in sandboxes if "Up" in sb["status"]])
-    n_agents = sum(len(s.get("windows", {})) for s in all_state.values())
+    n_agents = sum(
+        sum(1 for w in s.get("windows", {}).values() if w.get("role") != "shell")
+        for s in all_state.values()
+    )
 
     summary = (
         f"Sessions:  [cyan]{n_sessions}[/cyan]   "
