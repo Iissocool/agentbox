@@ -1,8 +1,10 @@
-"""Agentbox REPL — Classic style."""
+"""Agentbox REPL — Cyber hacker style with rotating binary cube."""
 
 from __future__ import annotations
 
+import math
 import os
+import random
 import time
 from typing import Any
 
@@ -21,49 +23,120 @@ from . import __version__
 
 console = Console()
 
-# ── Palette ──
-G = "#D4AF37"
-DG = "#B8860B"
-PG = "#F5E6CC"
-CR = "#FAF0E6"
-NV = "#0D1B2A"
-DN = "#1B2838"
-DR = "#8B0000"
+# ── Cyber palette ──
+CY = "#00FF41"      # Matrix green
+CG = "#00CC33"      # Darker green
+CD = "#009926"      # Dim green
+CB = "#001a0d"      # Dark bg
+CN = "#0a0a0a"      # Near black
+CW = "#c0c0c0"      # Light gray
+CR2 = "#FAF0E6"     # Cream (dim text)
 
-# ── Rotating indicator ──
-_SPIN = ["◐", "◓", "◑", "◒"]
+# ── 3D Binary Cube Engine ──
+# 8 vertices of a unit cube
+_VERTS = [
+    (-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+    (-1, -1,  1), (1, -1,  1), (1, 1,  1), (-1, 1,  1),
+]
+# 12 edges (vertex index pairs)
+_EDGES = [
+    (0,1),(1,2),(2,3),(3,0),  # back face
+    (4,5),(5,6),(6,7),(7,4),  # front face
+    (0,4),(1,5),(2,6),(3,7),  # connecting edges
+]
+
+# Canvas size for cube rendering
+_CW, _CH = 10, 7
 
 
-def _spin() -> str:
-    return _SPIN[int(time.time() * 3) % 4]
+def _rotate_y(v: tuple, angle: float) -> tuple:
+    x, y, z = v
+    c, s = math.cos(angle), math.sin(angle)
+    return (x * c + z * s, y, -x * s + z * c)
+
+
+def _rotate_x(v: tuple, angle: float) -> tuple:
+    x, y, z = v
+    c, s = math.cos(angle), math.sin(angle)
+    return (x, y * c - z * s, y * s + z * c)
+
+
+def _render_cube(angle_y: float, angle_x: float = 0.3) -> list[str]:
+    """Render a rotating wireframe cube using 0s and 1s.
+
+    Returns list of strings (lines of the cube).
+    """
+    # Rotate all vertices
+    rotated = []
+    for v in _VERTS:
+        r = _rotate_y(v, angle_y)
+        r = _rotate_x(r, angle_x)
+        rotated.append(r)
+
+    # Project to 2D (orthographic, scaled)
+    scale = 2.0
+    projected = []
+    for x, y, z in rotated:
+        px = int((x * scale) + _CW // 2)
+        py = int((-y * scale) + _CH // 2)
+        projected.append((px, py))
+
+    # Create canvas
+    canvas = [[" "] * _CW for _ in range(_CH)]
+
+    # Draw edges with binary digits
+    for i, j in _EDGES:
+        x0, y0 = projected[i]
+        x1, y1 = projected[j]
+        # Bresenham-like line drawing
+        steps = max(abs(x1 - x0), abs(y1 - y0), 1)
+        for s in range(steps + 1):
+            t = s / steps
+            x = int(x0 + (x1 - x0) * t)
+            y = int(y0 + (y1 - y0) * t)
+            if 0 <= x < _CW and 0 <= y < _CH:
+                canvas[y][x] = random.choice("01")
+
+    # Draw vertices brighter
+    for px, py in projected:
+        if 0 <= px < _CW and 0 <= py < _CH:
+            canvas[py][px] = random.choice("01")
+
+    return ["".join(row) for row in canvas]
+
+
+def _cube_frame() -> list[str]:
+    """Get current rotating cube frame."""
+    angle = time.time() * 1.2  # Rotation speed
+    return _render_cube(angle)
 
 
 # ── Slash commands ──
 _CMDS = [
-    ("/claude",   "启动 Claude Code 沙盒",        "🤖 Agent",  ""),
-    ("/codex",    "启动 OpenAI Codex 沙盒",       "🤖 Agent",  ""),
-    ("/aider",    "启动 Aider 沙盒",              "🤖 Agent",  ""),
-    ("/goose",    "启动 Goose 沙盒",              "🤖 Agent",  ""),
-    ("/opencode", "启动 OpenCode 沙盒",           "🤖 Agent",  ""),
-    ("/run",      "运行任意 Agent",                "🤖 Agent",  "<agent>"),
-    ("/compose",  "多 Agent 角色组合协作",         "👥 多Agent", "a:role b:role"),
-    ("/team",     "运行预定义团队",                "👥 多Agent", "<team_id>"),
-    ("/compare",  "多个 Agent 并排对比",          "👥 多Agent", "claude codex"),
-    ("/ask",      "快捷提问，一键启动 Agent",      "💬 对话",   "\"问题\""),
-    ("/status",   "查看会话和沙盒状态",            "📊 管理",   ""),
-    ("/attach",   "重连到 tmux 会话",             "📊 管理",   ""),
-    ("/kill",     "停止会话和沙盒",                "📊 管理",   ""),
-    ("/logs",     "查看沙盒日志",                  "📊 管理",   ""),
-    ("/diff",     "查看 Git 改动摘要",            "🔧 工作流", ""),
-    ("/merge",    "暂存并提交所有改动",           "🔧 工作流", "-m \"msg\""),
-    ("/review",   "审查改动+测试+合并/丢弃",      "🔧 工作流", ""),
-    ("/test",     "运行项目测试",                  "🔧 工作流", ""),
-    ("/pipeline", "多步流水线编排",                "🧠 流水线", "dev \"任务\""),
-    ("/list",     "列出可用 Agent 和团队",        "⚙️ 配置",   ""),
-    ("/config",   "查看/编辑配置",                 "⚙️ 配置",   "show|edit"),
-    ("/shell",    "打开容器 Shell",               "🐚 Shell",  "<agent>"),
-    ("/help",     "显示帮助信息",                  "❓ 其他",   ""),
-    ("/exit",     "退出 Agentbox",                "❓ 其他",   ""),
+    ("/claude",   "启动 Claude Code 沙盒",        "Agent",  ""),
+    ("/codex",    "启动 OpenAI Codex 沙盒",       "Agent",  ""),
+    ("/aider",    "启动 Aider 沙盒",              "Agent",  ""),
+    ("/goose",    "启动 Goose 沙盒",              "Agent",  ""),
+    ("/opencode", "启动 OpenCode 沙盒",           "Agent",  ""),
+    ("/run",      "运行任意 Agent",                "Agent",  "<agent>"),
+    ("/compose",  "多 Agent 角色组合协作",         "Multi",  "a:role b:role"),
+    ("/team",     "运行预定义团队",                "Multi",  "<team_id>"),
+    ("/compare",  "多个 Agent 并排对比",          "Multi",  "claude codex"),
+    ("/ask",      "快捷提问，一键启动 Agent",      "Chat",   "\"问题\""),
+    ("/status",   "查看会话和沙盒状态",            "Manage", ""),
+    ("/attach",   "重连到 tmux 会话",             "Manage", ""),
+    ("/kill",     "停止会话和沙盒",                "Manage", ""),
+    ("/logs",     "查看沙盒日志",                  "Manage", ""),
+    ("/diff",     "查看 Git 改动摘要",            "Flow",   ""),
+    ("/merge",    "暂存并提交所有改动",           "Flow",   "-m \"msg\""),
+    ("/review",   "审查改动+测试+合并/丢弃",      "Flow",   ""),
+    ("/test",     "运行项目测试",                  "Flow",   ""),
+    ("/pipeline", "多步流水线编排",                "Pipe",   "dev \"任务\""),
+    ("/list",     "列出可用 Agent 和团队",        "Config", ""),
+    ("/config",   "查看/编辑配置",                 "Config", "show|edit"),
+    ("/shell",    "打开容器 Shell",               "Shell",  "<agent>"),
+    ("/help",     "显示帮助信息",                  "",       ""),
+    ("/exit",     "退出 Agentbox",                "",       ""),
 ]
 
 
@@ -75,8 +148,9 @@ class _Completer(Completer):
         for cmd, desc, cat, usage in _CMDS:
             if cmd.lower().startswith(text.lower()):
                 display = f"{cmd} {usage}".strip()
+                meta = f"{cat}  {desc}" if cat else desc
                 yield Completion(cmd, start_position=-len(text),
-                                 display=display, display_meta=f"{cat}  {desc}")
+                                 display=display, display_meta=meta)
 
 
 def _key_bindings() -> KeyBindings:
@@ -109,14 +183,19 @@ _BANNER = r"""
 
 def _splash() -> None:
     console.print()
-    console.print(f"  [bold {G}]{_BANNER}[/]")
-    console.print(f"  [bold]Agentbox[/bold] [dim]v{__version__}[/dim]  [dim]·[/dim]  [dim]AI Agent 编排沙盒[/dim]")
+    # Render a static cube for splash
+    cube = _render_cube(0.8)
+    cube_lines = "\n".join(f"    {line}" for line in cube)
+    console.print(f"  [{CG}]{cube_lines}[/]")
     console.print()
-    console.print(f"  [dim]{'─' * 43}[/dim]")
+    console.print(f"  [bold {CY}]{_BANNER}[/]")
+    console.print(f"  [bold {CY}]Agentbox[/] [{CD}]v{__version__}[/]  [{CD}]·[/]  [{CD}]AI Agent 编排沙盒[/]")
     console.print()
-    console.print(f"  💡  输入 [bold {G}]/[/] 查看所有命令  ·  [bold {G}]↑↓[/] 选择  ·  [bold {G}]↵[/] 补全  ·  再 [bold {G}]↵[/] 执行")
-    console.print(f"  💡  直接输入 [bold {G}]claude[/] 启动 Agent  ·  输入问题自动提问")
-    console.print(f"  💡  [bold {G}]Ctrl+C[/] 取消  ·  [bold {G}]Ctrl+D[/] 或 [bold {G}]/exit[/] 退出")
+    console.print(f"  [{CD}]{'─' * 43}[/]")
+    console.print()
+    console.print(f"  [{CD}]◈[/]  输入 [bold {CY}]/[/] 查看所有命令  [{CD}]·[/]  [bold {CY}]↑↓[/] 选择  [{CD}]·[/]  [bold {CY}]↵[/] 补全/执行")
+    console.print(f"  [{CD}]◈[/]  直接输入 [bold {CY}]claude[/] 启动 Agent  [{CD}]·[/]  输入问题自动提问")
+    console.print(f"  [{CD}]◈[/]  [bold {CY}]Ctrl+C[/] 取消  [{CD}]·[/]  [bold {CY}]Ctrl+D[/] 或 [bold {CY}]/exit[/] 退出")
     console.print()
 
 
@@ -124,20 +203,20 @@ def _splash() -> None:
 def _help() -> None:
     console.print()
     console.print(Panel(
-        f"[bold {G}]◈  Agentbox 命令列表  ◈[/]\n"
-        f"[{CR} dim]输入 / 触发补全 · ↑↓ 选择 · ↵ 执行[/]",
-        border_style=DG, padding=(0, 2)))
+        f"[bold {CY}]◈  Agentbox 命令列表  ◈[/]\n"
+        f"[{CW} dim]输入 / 触发补全 · ↑↓ 选择 · ↵ 执行[/]",
+        border_style=CD, padding=(0, 2)))
 
     cats: dict[str, list] = {}
     for cmd, desc, cat, usage in _CMDS:
-        cats.setdefault(cat, []).append((cmd, desc, usage))
+        cats.setdefault(cat or "Other", []).append((cmd, desc, usage))
 
     for cat, cmds in cats.items():
-        console.print(f"\n  [bold {G}]{cat}[/]")
-        console.print(f"  [{DG}]{'─' * 40}[/]")
+        console.print(f"\n  [bold {CY}]{cat}[/]")
+        console.print(f"  [{CD}]{'─' * 40}[/]")
         for cmd, desc, usage in cmds:
-            c = f"[{G}]{cmd}[/]" + (f" [{CR} dim]{usage}[/]" if usage else "")
-            console.print(f"  {c:<28} [{PG}]{desc}[/]")
+            c = f"[{CY}]{cmd}[/]" + (f" [{CW} dim]{usage}[/]" if usage else "")
+            console.print(f"  {c:<28} [{CG}]{desc}[/]")
     console.print()
 
 
@@ -172,7 +251,7 @@ def _exec(ctx: Any, raw: str) -> bool:
             WorkflowEngine(config).ask(prompt=q, agent_id="claude", project_path=project)
         elif name == "compose":
             if not args:
-                args = input("  组合 (如 claude:coder codex:reviewer): ").strip().split()
+                args = input("  > ").strip().split()
             runner.run_compose([_parse_agent_role(s) for s in args], project)
         elif name == "team":
             runner.run_team(args[0] if args else "dev-team", project)
@@ -184,7 +263,7 @@ def _exec(ctx: Any, raw: str) -> bool:
             from .orchestrator import Orchestrator
             from .orchestrator.pipeline import dev_pipeline, research_pipeline, compare_pipeline
             pt = args[0] if args else "dev"
-            task = " ".join(args[1:]) or input("  任务: ").strip()
+            task = " ".join(args[1:]) or input("  > ").strip()
             orch = Orchestrator(config)
             pipe = {"dev": dev_pipeline, "research": research_pipeline,
                     "compare": compare_pipeline}.get(pt, dev_pipeline)
@@ -203,25 +282,25 @@ def _exec(ctx: Any, raw: str) -> bool:
         elif name == "help":
             _help()
         elif name in ("exit", "quit", "q"):
-            console.print(f"\n  [{CR} dim]👋 再见！[/]")
+            console.print(f"\n  [{CD}]Bye.[/]")
             return False
         else:
-            console.print(f"\n  [{DR}]✘[/] 未知命令: {cmd}  [{CR} dim]输入 / 查看命令[/]\n")
+            console.print(f"\n  [{CY}]✘[/] 未知命令: {cmd}  [{CD}]输入 / 查看命令[/]\n")
     except Exception as e:
-        console.print(f"\n  [{DR}]⚠[/] {e}")
-        console.print(f"  [{CR} dim]输入 /help 查看命令[/]\n")
+        console.print(f"\n  [{CY}]⚠[/] {e}")
+        console.print(f"  [{CD}]输入 /help 查看命令[/]\n")
 
     return True
 
 
 # ── prompt_toolkit style ──
 _style = PtStyle.from_dict({
-    "bottom-toolbar": f"bg:{NV} {CR}",
-    "completion-menu": f"bg:{DN} {CR}",
-    "completion-menu.completion": f"bg:{DN} {CR}",
-    "completion-menu.completion.current": f"bg:{G} #000000 bold",
-    "completion-menu.meta": f"bg:{NV} #888888",
-    "completion-menu.completion.current meta": f"bg:{G} #1a1a1a",
+    "bottom-toolbar": f"bg:{CB} {CY}",
+    "completion-menu": f"bg:#0d1a0d {CW}",
+    "completion-menu.completion": f"bg:#0d1a0d {CW}",
+    "completion-menu.completion.current": f"bg:{CY} #000000 bold",
+    "completion-menu.meta": f"bg:{CB} #888888",
+    "completion-menu.completion.current meta": f"bg:{CY} #1a1a1a",
 })
 
 
@@ -241,25 +320,36 @@ def run_repl(ctx: Any) -> None:
     project = os.path.basename(ctx.obj["project_path"])
 
     def _prompt():
-        return FormattedText([
-            (f"bold {G}", "╭─ "),
-            ("", f"🧊 {project} "),
-            (f"bold {G}", "── ╯"),
+        # Rotating binary cube as prompt header
+        cube = _cube_frame()
+        parts = []
+        for line in cube:
+            parts.append((f"{CD}", f"  {line}\n"))
+        parts.extend([
+            (f"bold {CY}", "╭─"),
+            ("", " "),
+            (f"{CG}", f"⬡ {project}"),
+            ("", " "),
+            (f"bold {CY}", "──╯"),
             ("", "\n"),
-            (f"bold {G}", "╰ "),
-            (f"bold {G}", "› "),
+            (f"bold {CY}", "╰ "),
+            (f"bold {CY}", "› "),
         ])
+        return FormattedText(parts)
 
     def _toolbar():
+        cube = _cube_frame()
+        # Show a single-line mini cube in toolbar
+        mini = cube[len(cube) // 2]  # Middle line of cube
         return FormattedText([
-            (f"bg:{NV} {PG}", f"  ◈ {_spin()}  "),
-            (f"bg:{NV} {CR}", "输入 "),
-            (f"bg:{NV} bold {G}", "/"),
-            (f"bg:{NV} {CR}", " 命令  ·  "),
-            (f"bg:{NV} bold {G}", "↵"),
-            (f"bg:{NV} {CR}", " 执行  ·  "),
-            (f"bg:{NV} bold {G}", "/exit"),
-            (f"bg:{NV} {CR}", " 退出  "),
+            (f"bg:{CB} {CD}", f"  {mini}  "),
+            (f"bg:{CB} {CW}", "输入 "),
+            (f"bg:{CB} bold {CY}", "/"),
+            (f"bg:{CB} {CW}", " 命令  ·  "),
+            (f"bg:{CB} bold {CY}", "↵"),
+            (f"bg:{CB} {CW}", " 执行  ·  "),
+            (f"bg:{CB} bold {CY}", "/exit"),
+            (f"bg:{CB} {CW}", " 退出  "),
         ])
 
     while True:
@@ -287,13 +377,13 @@ def run_repl(ctx: Any) -> None:
                         project_path=ctx.obj["project_path"])
 
         except KeyboardInterrupt:
-            console.print(f"\n  [{CR} dim]Ctrl+D 或 /exit 退出[/]")
+            console.print()
         except EOFError:
-            console.print(f"\n  [{CR} dim]👋 再见！[/]\n")
+            console.print(f"\n  [{CD}]Bye.[/]\n")
             break
         except Exception as e:
-            console.print(f"\n  [{DR}]⚠[/] {e}")
-            console.print(f"  [{CR} dim]REPL 已恢复[/]\n")
+            console.print(f"\n  [{CY}]⚠[/] {e}")
+            console.print(f"  [{CD}]REPL 已恢复[/]\n")
             try:
                 import subprocess
                 subprocess.run(["stty", "sane"], check=False)
