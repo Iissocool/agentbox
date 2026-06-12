@@ -1,4 +1,4 @@
-"""Agentbox REPL — Classic style with rotating cube."""
+"""Agentbox REPL — Classic style."""
 
 from __future__ import annotations
 
@@ -30,12 +30,12 @@ NV = "#0D1B2A"
 DN = "#1B2838"
 DR = "#8B0000"
 
-# ── Rotating cube — 6 frames ──
-_CUBE = ["🟦🟥🟩", "🟥🟨🟦", "🟨⬜🟥", "⬜🟧🟨", "🟧🟩⬜", "🟩🟦🟧"]
+# ── Rotating indicator ──
+_SPIN = ["◐", "◓", "◑", "◒"]
 
 
-def _cube() -> str:
-    return _CUBE[int(time.time() * 2.5) % 6]
+def _spin() -> str:
+    return _SPIN[int(time.time() * 3) % 4]
 
 
 # ── Slash commands ──
@@ -252,14 +252,10 @@ def run_repl(ctx: Any) -> None:
 
     def _toolbar():
         return FormattedText([
-            (f"bg:{NV} {PG}", f"  ◈ {_cube()}  "),
+            (f"bg:{NV} {PG}", f"  ◈ {_spin()}  "),
             (f"bg:{NV} {CR}", "输入 "),
             (f"bg:{NV} bold {G}", "/"),
             (f"bg:{NV} {CR}", " 命令  ·  "),
-            (f"bg:{NV} bold {G}", "↑↓"),
-            (f"bg:{NV} {CR}", " 选择  ·  "),
-            (f"bg:{NV} bold {G}", "↵"),
-            (f"bg:{NV} {CR}", " 补全  ·  再 "),
             (f"bg:{NV} bold {G}", "↵"),
             (f"bg:{NV} {CR}", " 执行  ·  "),
             (f"bg:{NV} bold {G}", "/exit"),
