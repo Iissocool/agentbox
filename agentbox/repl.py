@@ -285,10 +285,10 @@ def run_repl(ctx: Any) -> None:
         ])
 
     def _toolbar():
-        # Single gold — elegant hierarchy through spacing, not color
+        # Single gold — clear section breaks with wide spacing
         G = f"bold {GOLD}"
         return FormattedText([
-            (G, "  ◈  / 命令 · ↑↓ 选择 · ↵ 执行   ❖   claude 启动 · 提问即执行   ❖   ⌃C 取消 · /exit 退出  "),
+            (G, "  ◈  / 命令 · ↑↓ 选择 · ↵ 执行 · /help 帮助       claude 启动 · 提问即执行       ⌃C 取消 · /exit 退出  "),
         ])
 
     while True:
