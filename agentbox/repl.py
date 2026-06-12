@@ -1,4 +1,8 @@
-"""Agentbox REPL — Sci-fi tech style."""
+"""Agentbox REPL — Sovereign Terminal Theme.
+
+Inspired by JPMorgan Chase & Bloomberg Terminal design language:
+Deep navy, burnished gold, silver accents, authoritative typography.
+"""
 
 from __future__ import annotations
 
@@ -17,19 +21,30 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.box import ROUNDED
+from rich.text import Text
+from rich.align import Align
 
 from . import __version__
 
 console = Console()
 
-# ── Sci-fi palette ──
-C1 = "#5EEAD4"      # Teal glow (primary accent)
-C2 = "#7DD3FC"      # Ice blue (secondary)
-C3 = "#334155"      # Dark slate (borders, dim)
-C4 = "#94A3B8"      # Mid slate (dim text)
-C5 = "#CBD5E1"      # Light slate (normal text)
-C6 = "#0d1117"      # Void black (bg)
-C7 = "#38BDF8"      # Alert blue
+# ═══════════════════════════════════════════════════════════════
+#  SOVEREIGN PALETTE — Deep Navy · Burnished Gold · Silver
+# ═══════════════════════════════════════════════════════════════
+NAVY       = "#0A1628"   # Abyssal navy (primary bg)
+NAVY_MID   = "#122035"   # Mid navy (panels, menus)
+NAVY_LIGHT = "#1B3A5C"   # Light navy (borders, lines)
+ROYAL      = "#2E5B8A"   # Royal blue (active borders)
+ELECTRIC   = "#4A90D9"   # Electric blue (links, hover)
+GOLD       = "#C5A572"   # Burnished gold (primary accent)
+GOLD_LIGHT = "#E8D5B5"   # Light gold (secondary accent)
+GOLD_DIM   = "#8B7355"   # Dim gold (subtle accents)
+SILVER     = "#A8B2C1"   # Silver (dim text)
+PEARL      = "#D0D5DD"   # Pearl (normal text)
+WHITE      = "#E8ECF1"   # Off-white (bright text)
+VOID       = "#060D18"   # Void black (deepest bg)
+ALERT_R    = "#E25C5C"   # Alert red
+ALERT_A    = "#E8A838"   # Alert amber
 
 # ── Slash commands ──
 _CMDS = [
@@ -91,7 +106,9 @@ def _get_app():
     return get_app()
 
 
-# ── Splash ──
+# ═══════════════════════════════════════════════════════════════
+#  SPLASH — Command Center Entry
+# ═══════════════════════════════════════════════════════════════
 _BANNER = r"""
        _                 _           _
       / \   __ _ ___ ___| |__   __ _(_)_ __
@@ -102,37 +119,67 @@ _BANNER = r"""
 
 
 def _splash() -> None:
+    # ── Top gold filigree line ──
     console.print()
-    console.print(f"  [bold {C1}]{_BANNER}[/]")
-    console.print(f"  [{C1}]◈[/]  [bold {C1}]Agentbox[/] [{C3}]v{__version__}[/]  [{C3}]─[/]  [{C4}]AI Agent Orchestration Sandbox[/]")
+    console.print(f"  [{GOLD_DIM}]▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔[/]")
+
+    # ── Banner in gold ──
+    console.print(f"  [bold {GOLD}]{_BANNER}[/]")
+
+    # ── Sovereign title bar ──
+    console.print(f"  [{GOLD}]◈ ──[/]  [bold {GOLD_LIGHT}]AGENTBOX[/] [{SILVER}]v{__version__}[/]")
+    console.print(f"  [{GOLD}]│[/]")
+    console.print(f"  [{GOLD}]│[/]  [{PEARL}]AI Agent Orchestration Sandbox[/]")
+    console.print(f"  [{GOLD}]│[/]")
+
+    # ── Navigation guide — refined ──
+    console.print(f"  [{GOLD}]├─[/]  [{SILVER}]Commands[/]   [{GOLD_DIM}]┄[/]  [{PEARL}]/[/][{SILVER}] 查看命令[/]  [{GOLD_DIM}]┄[/]  [{PEARL}]↑↓[/][{SILVER}] 选择[/]  [{GOLD_DIM}]┄[/]  [{PEARL}]↵[/][{SILVER}] 执行[/]")
+    console.print(f"  [{GOLD}]├─[/]  [{SILVER}]Agent[/]      [{GOLD_DIM}]┄[/]  [{PEARL}]claude[/][{SILVER}] 启动沙盒[/]  [{GOLD_DIM}]┄[/]  [{SILVER}]直接提问自动执行[/]")
+    console.print(f"  [{GOLD}]╰─[/]  [{SILVER}]Session[/]    [{GOLD_DIM}]┄[/]  [{PEARL}]Ctrl+C[/][{SILVER}] 取消[/]  [{GOLD_DIM}]┄[/]  [{PEARL}]Ctrl+D[/][{SILVER}] 或[/]  [{PEARL}]/exit[/][{SILVER}] 退出[/]")
+
+    # ── Bottom gold filigree line ──
+    console.print(f"  [{GOLD_DIM}]▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁[/]")
     console.print()
 
 
-# ── Help ──
+# ═══════════════════════════════════════════════════════════════
+#  HELP — Sovereign Command Reference
+# ═══════════════════════════════════════════════════════════════
 def _help() -> None:
     console.print()
-    table = Table(
-        show_header=False,
-        box=ROUNDED,
-        border_style=C3,
-        padding=(0, 1),
+
+    # ── Title panel in gold ──
+    title = Panel(
+        Align(Text("◈  C O M M A N D S", style=f"bold {GOLD}"), align="center"),
+        border_style=GOLD_DIM,
+        padding=(0, 4),
     )
-    table.add_column("cmd", style=f"bold {C1}", min_width=24, no_wrap=True)
-    table.add_column("desc", style=C5, min_width=24, no_wrap=True)
-    table.add_column("cat", style=C3, min_width=8, no_wrap=True)
+    console.print(title)
+
+    # ── Command table ──
+    table = Table(
+        show_header=True,
+        header_style=f"bold {GOLD}",
+        box=ROUNDED,
+        border_style=NAVY_LIGHT,
+        padding=(0, 2),
+        show_lines=False,
+    )
+    table.add_column("Command", style=f"bold {GOLD_LIGHT}", min_width=24, no_wrap=True)
+    table.add_column("Description", style=PEARL, min_width=28, no_wrap=True)
+    table.add_column("Category", style=f"{SILVER}", min_width=8, no_wrap=True)
 
     for cmd, desc, cat, usage in _CMDS:
         c = f"{cmd} {usage}".strip() if usage else cmd
-        table.add_row(c, desc, cat or "Other")
+        table.add_row(c, desc, cat or "—")
 
-    console.print(Panel(
-        f"[bold {C1}]Commands[/]",
-        border_style=C3, padding=(0, 2)))
     console.print(table)
     console.print()
 
 
-# ── Command dispatch ──
+# ═══════════════════════════════════════════════════════════════
+#  COMMAND DISPATCH
+# ═══════════════════════════════════════════════════════════════
 def _exec(ctx: Any, raw: str) -> bool:
     parts = raw.strip().split()
     if not parts:
@@ -194,36 +241,40 @@ def _exec(ctx: Any, raw: str) -> bool:
         elif name == "help":
             _help()
         elif name in ("exit", "quit", "q"):
-            console.print(f"\n  [{C3}]Bye.[/]")
+            console.print(f"\n  [{GOLD_DIM}]◈ Session closed.[/]\n")
             return False
         else:
-            console.print(f"\n  [{C7}]✘[/] 未知命令: {cmd}  [{C4}]输入 / 查看命令[/]\n")
+            console.print(f"\n  [{ALERT_R}]✘[/]  Unknown command: [bold]{cmd}[/]  [{SILVER}]Type / for commands[/]\n")
     except Exception as e:
-        console.print(f"\n  [{C7}]⚠[/] {e}")
-        console.print(f"  [{C4}]输入 /help 查看命令[/]\n")
+        console.print(f"\n  [{ALERT_A}]⚠[/] {e}")
+        console.print(f"  [{SILVER}]Type /help for commands[/]\n")
 
     return True
 
 
-# ── prompt_toolkit style ──
+# ═══════════════════════════════════════════════════════════════
+#  PROMPT_TOOLKIT STYLE — Sovereign Terminal
+# ═══════════════════════════════════════════════════════════════
 _style = PtStyle.from_dict({
-    # Completion menu — sci-fi dark with teal highlight
-    "completion-menu":               f"bg:{C6} {C5}",
-    "completion-menu.completion":    f"bg:{C6} {C5}",
-    "completion-menu.completion.current": f"bg:#133543 #ffffff bold",
-    "completion-menu.meta":          f"bg:{C6} {C3}",
-    "completion-menu.completion.current meta": f"bg:#133543 {C1}",
+    # Completion menu — deep navy with gold highlight
+    "completion-menu":                          f"bg:{NAVY} {PEARL}",
+    "completion-menu.completion":               f"bg:{NAVY} {PEARL}",
+    "completion-menu.completion.current":       f"bg:{ROYAL} #ffffff bold",
+    "completion-menu.meta":                     f"bg:{NAVY} {SILVER}",
+    "completion-menu.completion.current meta":  f"bg:{ROYAL} {GOLD_LIGHT}",
     # Scrollbar
-    "scrollbar":                     f"bg:#1c2128",
-    "scrollbar.button":              f"bg:{C1}",
-    # Auto-suggestion (gray history hint)
-    "auto-suggestion":               f"{C3}",
-    # Bottom toolbar — void black, teal accents
-    "bottom-toolbar":                f"bg:{C6} {C1}",
+    "scrollbar":                                f"bg:{NAVY_MID}",
+    "scrollbar.button":                         f"bg:{GOLD}",
+    # Auto-suggestion
+    "auto-suggestion":                          f"{NAVY_LIGHT}",
+    # Bottom toolbar — deep navy, gold text
+    "bottom-toolbar":                           f"bg:{NAVY} {GOLD}",
 })
 
 
-# ── Main REPL ──
+# ═══════════════════════════════════════════════════════════════
+#  MAIN REPL LOOP
+# ═══════════════════════════════════════════════════════════════
 def run_repl(ctx: Any) -> None:
     _splash()
 
@@ -239,35 +290,44 @@ def run_repl(ctx: Any) -> None:
 
     def _prompt():
         return FormattedText([
-            (f"bold {C1}", "╭─ "),
-            (f"{C2}", project),
-            (f"bold {C1}", " ──╯"),
+            # Top line: ╭── ◈ project ──╮
+            (f"bold {GOLD_DIM}", "╭── "),
+            (f"bold {GOLD}", "◈ "),
+            (f"{ELECTRIC}", project),
+            (f"bold {GOLD_DIM}", " ──╯"),
             ("", "\n"),
-            (f"bold {C1}", "╰ › "),
+            # Input line: │ ›
+            (f"{GOLD_DIM}", "│ "),
+            (f"bold {GOLD}", "› "),
         ])
 
     def _toolbar():
         return FormattedText([
-            (f"bg:{C6} {C1}", "  ◈  "),
-            (f"bg:{C6} {C5}", "/ "),
-            (f"bg:{C6} {C4}", "命令  "),
-            (f"bg:{C6} {C3}", "·  "),
-            (f"bg:{C6} {C5}", "↑↓ "),
-            (f"bg:{C6} {C4}", "选择  "),
-            (f"bg:{C6} {C3}", "·  "),
-            (f"bg:{C6} {C5}", "↵ "),
-            (f"bg:{C6} {C4}", "执行  "),
-            (f"bg:{C6} {C3}", "│  "),
-            (f"bg:{C6} {C5}", "claude "),
-            (f"bg:{C6} {C4}", "启动Agent  "),
-            (f"bg:{C6} {C3}", "·  "),
-            (f"bg:{C6} {C4}", "直接提问自动执行  "),
-            (f"bg:{C6} {C3}", "│  "),
-            (f"bg:{C6} {C5}", "Ctrl+C "),
-            (f"bg:{C6} {C4}", "取消  "),
-            (f"bg:{C6} {C3}", "·  "),
-            (f"bg:{C6} {C5}", "/exit "),
-            (f"bg:{C6} {C4}", "退出  "),
+            # ── Left: Navigation ──
+            (f"bg:{NAVY} {GOLD}", "  ◈  "),
+            (f"bg:{NAVY} {PEARL}", "/ "),
+            (f"bg:{NAVY} {SILVER}", "命令  "),
+            (f"bg:{NAVY} {GOLD_DIM}", "·  "),
+            (f"bg:{NAVY} {PEARL}", "↑↓ "),
+            (f"bg:{NAVY} {SILVER}", "选择  "),
+            (f"bg:{NAVY} {GOLD_DIM}", "·  "),
+            (f"bg:{NAVY} {PEARL}", "↵ "),
+            (f"bg:{NAVY} {SILVER}", "执行  "),
+            # ── Divider ──
+            (f"bg:{NAVY} {GOLD_DIM}", "│  "),
+            # ── Center: Agent ──
+            (f"bg:{NAVY} {PEARL}", "claude "),
+            (f"bg:{NAVY} {SILVER}", "启动  "),
+            (f"bg:{NAVY} {GOLD_DIM}", "·  "),
+            (f"bg:{NAVY} {SILVER}", "提问即执行  "),
+            # ── Divider ──
+            (f"bg:{NAVY} {GOLD_DIM}", "│  "),
+            # ── Right: Session ──
+            (f"bg:{NAVY} {PEARL}", "⌃C "),
+            (f"bg:{NAVY} {SILVER}", "取消  "),
+            (f"bg:{NAVY} {GOLD_DIM}", "·  "),
+            (f"bg:{NAVY} {PEARL}", "/exit "),
+            (f"bg:{NAVY} {SILVER}", "退出  "),
         ])
 
     while True:
@@ -297,11 +357,11 @@ def run_repl(ctx: Any) -> None:
         except KeyboardInterrupt:
             console.print()
         except EOFError:
-            console.print(f"\n  [{C3}]Bye.[/]\n")
+            console.print(f"\n  [{GOLD_DIM}]◈ Session closed.[/]\n")
             break
         except Exception as e:
-            console.print(f"\n  [{C7}]⚠[/] {e}")
-            console.print(f"  [{C4}]REPL 已恢复[/]\n")
+            console.print(f"\n  [{ALERT_A}]⚠[/] {e}")
+            console.print(f"  [{SILVER}]REPL recovered.[/]\n")
             try:
                 import subprocess
                 subprocess.run(["stty", "sane"], check=False)
