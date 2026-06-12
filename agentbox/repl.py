@@ -1,9 +1,8 @@
-"""Agentbox REPL — Cyber hacker style."""
+"""Agentbox REPL — Frosted glass tech style."""
 
 from __future__ import annotations
 
 import os
-import time
 from typing import Any
 
 from prompt_toolkit import PromptSession
@@ -16,25 +15,22 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.styles import Style as PtStyle
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
+from rich.box import ROUNDED
 
 from . import __version__
 
 console = Console()
 
-# ── Cyber palette ──
-CY = "#00FF41"      # Matrix green
-CG = "#00CC33"      # Darker green
-CD = "#009926"      # Dim green
-CB = "#001a0d"      # Dark bg
-CW = "#c0c0c0"      # Light gray
-
-# ── Rotating indicator ──
-_SPIN = ["◐", "◓", "◑", "◒"]
-
-
-def _spin() -> str:
-    return _SPIN[int(time.time() * 3) % 4]
-
+# ── Frosted glass palette (comfortable on dark transparent terminals) ──
+AC = "#5EEAD4"      # Soft teal accent
+AB = "#7DD3FC"      # Sky blue
+AD = "#94A3B8"      # Slate gray (dim text)
+AM = "#64748B"      # Muted slate
+ABG = "#0F172A"     # Dark slate (toolbar bg)
+ABD = "#1E293B"     # Border dark
+AW = "#CBD5E1"      # Light text
+AH = "#38BDF8"      # Highlight blue
 
 # ── Slash commands ──
 _CMDS = [
@@ -108,35 +104,43 @@ _BANNER = r"""
 
 def _splash() -> None:
     console.print()
-    console.print(f"  [bold {CY}]{_BANNER}[/]")
-    console.print(f"  [bold {CY}]Agentbox[/] [{CD}]v{__version__}[/]  [{CD}]·[/]  [{CD}]AI Agent 编排沙盒[/]")
+    console.print(f"  [bold {AC}]{_BANNER}[/]")
+    console.print(f"  [bold {AC}]Agentbox[/] [{AM}]v{__version__}[/]  [{AM}]·[/]  [{AD}]AI Agent 编排沙盒[/]")
     console.print()
-    console.print(f"  [{CD}]{'─' * 43}[/]")
+    console.print(f"  [{ABD}]{'─' * 43}[/]")
     console.print()
-    console.print(f"  [{CD}]◈[/]  输入 [bold {CY}]/[/] 查看所有命令  [{CD}]·[/]  [bold {CY}]↑↓[/] 选择  [{CD}]·[/]  [bold {CY}]↵[/] 补全/执行")
-    console.print(f"  [{CD}]◈[/]  直接输入 [bold {CY}]claude[/] 启动 Agent  [{CD}]·[/]  输入问题自动提问")
-    console.print(f"  [{CD}]◈[/]  [bold {CY}]Ctrl+C[/] 取消  [{CD}]·[/]  [bold {CY}]Ctrl+D[/] 或 [bold {CY}]/exit[/] 退出")
+    console.print(f"  [{AD}]输入 [bold {AC}]/[/] 查看命令  ·  [bold {AC}]↑↓[/] 选择  ·  [bold {AC}]↵[/] 补全/执行[/]")
+    console.print(f"  [{AD}]输入 [bold {AC}]claude[/] 启动 Agent  ·  直接提问自动执行[/]")
+    console.print(f"  [{AD}][bold {AC}]Ctrl+C[/] 取消  ·  [bold {AC}]Ctrl+D[/] 或 [bold {AC}]/exit[/] 退出[/]")
     console.print()
 
 
 # ── Help ──
 def _help() -> None:
     console.print()
-    console.print(Panel(
-        f"[bold {CY}]◈  Agentbox 命令列表  ◈[/]\n"
-        f"[{CW} dim]输入 / 触发补全 · ↑↓ 选择 · ↵ 执行[/]",
-        border_style=CD, padding=(0, 2)))
+    table = Table(
+        show_header=False,
+        box=ROUNDED,
+        border_style=AM,
+        padding=(0, 1),
+    )
+    table.add_column("cmd", style=f"bold {AC}", width=24, no_wrap=True)
+    table.add_column("desc", style=AW, width=32, no_wrap=True)
+    table.add_column("cat", style=AM, width=10, no_wrap=True)
 
     cats: dict[str, list] = {}
     for cmd, desc, cat, usage in _CMDS:
         cats.setdefault(cat or "Other", []).append((cmd, desc, usage))
 
     for cat, cmds in cats.items():
-        console.print(f"\n  [bold {CY}]{cat}[/]")
-        console.print(f"  [{CD}]{'─' * 40}[/]")
         for cmd, desc, usage in cmds:
-            c = f"[{CY}]{cmd}[/]" + (f" [{CW} dim]{usage}[/]" if usage else "")
-            console.print(f"  {c:<28} [{CG}]{desc}[/]")
+            c = f"{cmd} {usage}".strip() if usage else cmd
+            table.add_row(c, desc, cat)
+
+    console.print(Panel(
+        f"[bold {AC}]Commands[/]",
+        border_style=AM, padding=(0, 2)))
+    console.print(table)
     console.print()
 
 
@@ -202,25 +206,25 @@ def _exec(ctx: Any, raw: str) -> bool:
         elif name == "help":
             _help()
         elif name in ("exit", "quit", "q"):
-            console.print(f"\n  [{CD}]Bye.[/]")
+            console.print(f"\n  [{AM}]Bye.[/]")
             return False
         else:
-            console.print(f"\n  [{CY}]✘[/] 未知命令: {cmd}  [{CD}]输入 / 查看命令[/]\n")
+            console.print(f"\n  [{AH}]✘[/] 未知命令: {cmd}  [{AD}]输入 / 查看命令[/]\n")
     except Exception as e:
-        console.print(f"\n  [{CY}]⚠[/] {e}")
-        console.print(f"  [{CD}]输入 /help 查看命令[/]\n")
+        console.print(f"\n  [{AH}]⚠[/] {e}")
+        console.print(f"  [{AD}]输入 /help 查看命令[/]\n")
 
     return True
 
 
 # ── prompt_toolkit style ──
 _style = PtStyle.from_dict({
-    "bottom-toolbar": f"bg:{CB} {CY}",
-    "completion-menu": f"bg:#0d1a0d {CW}",
-    "completion-menu.completion": f"bg:#0d1a0d {CW}",
-    "completion-menu.completion.current": f"bg:{CY} #000000 bold",
-    "completion-menu.meta": f"bg:{CB} #888888",
-    "completion-menu.completion.current meta": f"bg:{CY} #1a1a1a",
+    "bottom-toolbar": f"bg:{ABG} {AD}",
+    "completion-menu": f"bg:#1a2744 {AW}",
+    "completion-menu.completion": f"bg:#1a2744 {AW}",
+    "completion-menu.completion.current": f"bg:{AC} #0F172A bold",
+    "completion-menu.meta": f"bg:#0F172A {AM}",
+    "completion-menu.completion.current meta": f"bg:{AC} #1E293B",
 })
 
 
@@ -234,33 +238,36 @@ def run_repl(ctx: Any) -> None:
         auto_suggest=AutoSuggestFromHistory(),
         complete_while_typing=True,
         key_bindings=_key_bindings(),
-        refresh_interval=0.4,
     )
 
     project = os.path.basename(ctx.obj["project_path"])
 
     def _prompt():
         return FormattedText([
-            (f"bold {CY}", "╭─"),
+            (f"bold {AC}", "╭─"),
             ("", " "),
-            (f"{CG}", f"⬡ {project}"),
+            (f"{AB}", f"◈ {project}"),
             ("", " "),
-            (f"bold {CY}", "──╯"),
+            (f"bold {AC}", "──╯"),
             ("", "\n"),
-            (f"bold {CY}", "╰ "),
-            (f"bold {CY}", "› "),
+            (f"bold {AC}", "╰ "),
+            (f"bold {AC}", "› "),
         ])
 
     def _toolbar():
         return FormattedText([
-            (f"bg:{CB} {CD}", f"  ◈ {_spin()}  "),
-            (f"bg:{CB} {CW}", "输入 "),
-            (f"bg:{CB} bold {CY}", "/"),
-            (f"bg:{CB} {CW}", " 命令  ·  "),
-            (f"bg:{CB} bold {CY}", "↵"),
-            (f"bg:{CB} {CW}", " 执行  ·  "),
-            (f"bg:{CB} bold {CY}", "/exit"),
-            (f"bg:{CB} {CW}", " 退出  "),
+            (f"bg:{ABG} {AM}", "  "),
+            (f"bg:{ABG} bold {AC}", "/"),
+            (f"bg:{ABG} {AD}", " 命令  "),
+            (f"bg:{ABG} {AM}", "·  "),
+            (f"bg:{ABG} bold {AC}", "↵"),
+            (f"bg:{ABG} {AD}", " 执行  "),
+            (f"bg:{ABG} {AM}", "·  "),
+            (f"bg:{ABG} bold {AC}", "/help"),
+            (f"bg:{ABG} {AD}", " 帮助  "),
+            (f"bg:{ABG} {AM}", "·  "),
+            (f"bg:{ABG} bold {AC}", "/exit"),
+            (f"bg:{ABG} {AD}", " 退出  "),
         ])
 
     while True:
@@ -290,11 +297,11 @@ def run_repl(ctx: Any) -> None:
         except KeyboardInterrupt:
             console.print()
         except EOFError:
-            console.print(f"\n  [{CD}]Bye.[/]\n")
+            console.print(f"\n  [{AM}]Bye.[/]\n")
             break
         except Exception as e:
-            console.print(f"\n  [{CY}]⚠[/] {e}")
-            console.print(f"  [{CD}]REPL 已恢复[/]\n")
+            console.print(f"\n  [{AH}]⚠[/] {e}")
+            console.print(f"  [{AD}]REPL 已恢复[/]\n")
             try:
                 import subprocess
                 subprocess.run(["stty", "sane"], check=False)
