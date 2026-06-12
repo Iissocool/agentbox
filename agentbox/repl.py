@@ -123,9 +123,9 @@ def _help() -> None:
         border_style=AM,
         padding=(0, 1),
     )
-    table.add_column("cmd", style=f"bold {AC}", width=24, no_wrap=True)
-    table.add_column("desc", style=AW, width=32, no_wrap=True)
-    table.add_column("cat", style=AM, width=10, no_wrap=True)
+    table.add_column("cmd", style=f"bold {AC}", min_width=24, no_wrap=True)
+    table.add_column("desc", style=AW, min_width=24, no_wrap=True)
+    table.add_column("cat", style=AM, min_width=8, no_wrap=True)
 
     cats: dict[str, list] = {}
     for cmd, desc, cat, usage in _CMDS:
