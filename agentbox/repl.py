@@ -1,4 +1,4 @@
-"""Agentbox REPL — Art Deco Morgan-style with rotating Rubik's cube."""
+"""Agentbox REPL — Minimal & Premium."""
 
 from __future__ import annotations
 
@@ -15,56 +15,43 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.styles import Style as PtStyle
 from rich.console import Console
-from rich.panel import Panel
+from rich.text import Text
 
 from . import __version__
 
 console = Console()
 
-# ── Art Deco palette ──
-G = "#D4AF37"      # Gold
-DG = "#B8860B"     # Dark gold
-PG = "#F5E6CC"     # Pale gold
-NV = "#0D1B2A"     # Navy
-DN = "#1B2838"     # Dark navy
-CR = "#FAF0E6"     # Cream
-DR = "#8B0000"     # Deep red
-
-# ── Rotating Rubik's cube — 6 emoji frames ──
-_CUBE = ["🔵🟥🟢", "🟥🟡🔵", "🟡⚪🟥", "⚪🟠🟡", "🟠🟢⚪", "🟢🔵🟠"]
-
-
-def _cube() -> str:
-    """Current rotating cube frame."""
-    return _CUBE[int(time.time() * 2.5) % 6]
-
+# ── Minimal palette ──
+MUTED = "#6B7280"    # Gray
+ACCENT = "#D4AF37"   # Subtle gold
+DIM = "#4B5563"      # Dark gray
 
 # ── Slash commands ──
 _CMDS = [
-    ("/claude",   "启动 Claude Code 沙盒",        "🤖 Agent",  ""),
-    ("/codex",    "启动 OpenAI Codex 沙盒",       "🤖 Agent",  ""),
-    ("/aider",    "启动 Aider 沙盒",              "🤖 Agent",  ""),
-    ("/goose",    "启动 Goose 沙盒",              "🤖 Agent",  ""),
-    ("/opencode", "启动 OpenCode 沙盒",           "🤖 Agent",  ""),
-    ("/run",      "运行任意 Agent",                "🤖 Agent",  "<agent>"),
-    ("/compose",  "多 Agent 角色组合协作",         "👥 多Agent", "a:role b:role"),
-    ("/team",     "运行预定义团队",                "👥 多Agent", "<team_id>"),
-    ("/compare",  "多个 Agent 并排对比",          "👥 多Agent", "claude codex"),
-    ("/ask",      "快捷提问，一键启动 Agent",      "💬 对话",   "\"问题\""),
-    ("/status",   "查看会话和沙盒状态",            "📊 管理",   ""),
-    ("/attach",   "重连到 tmux 会话",             "📊 管理",   ""),
-    ("/kill",     "停止会话和沙盒",                "📊 管理",   ""),
-    ("/logs",     "查看沙盒日志",                  "📊 管理",   ""),
-    ("/diff",     "查看 Git 改动摘要",            "🔧 工作流", ""),
-    ("/merge",    "暂存并提交所有改动",           "🔧 工作流", "-m \"msg\""),
-    ("/review",   "审查改动+测试+合并/丢弃",      "🔧 工作流", ""),
-    ("/test",     "运行项目测试",                  "🔧 工作流", ""),
-    ("/pipeline", "多步流水线编排",                "🧠 流水线", "dev \"任务\""),
-    ("/list",     "列出可用 Agent 和团队",        "⚙️ 配置",   ""),
-    ("/config",   "查看/编辑配置",                 "⚙️ 配置",   "show|edit"),
-    ("/shell",    "打开容器 Shell",               "🐚 Shell",  "<agent>"),
-    ("/help",     "显示帮助信息",                  "❓ 其他",   ""),
-    ("/exit",     "退出 Agentbox",                "❓ 其他",   ""),
+    ("/claude",   "启动 Claude Code 沙盒",        "Agent",  ""),
+    ("/codex",    "启动 OpenAI Codex 沙盒",       "Agent",  ""),
+    ("/aider",    "启动 Aider 沙盒",              "Agent",  ""),
+    ("/goose",    "启动 Goose 沙盒",              "Agent",  ""),
+    ("/opencode", "启动 OpenCode 沙盒",           "Agent",  ""),
+    ("/run",      "运行任意 Agent",                "Agent",  "<agent>"),
+    ("/compose",  "多 Agent 角色组合协作",         "Multi",  "a:role b:role"),
+    ("/team",     "运行预定义团队",                "Multi",  "<team_id>"),
+    ("/compare",  "多个 Agent 并排对比",          "Multi",  "claude codex"),
+    ("/ask",      "快捷提问",                     "Chat",   "\"问题\""),
+    ("/status",   "查看会话和沙盒状态",            "Manage", ""),
+    ("/attach",   "重连到 tmux 会话",             "Manage", ""),
+    ("/kill",     "停止会话和沙盒",                "Manage", ""),
+    ("/logs",     "查看沙盒日志",                  "Manage", ""),
+    ("/diff",     "查看 Git 改动",                "Flow",   ""),
+    ("/merge",    "暂存并提交改动",               "Flow",   "-m \"msg\""),
+    ("/review",   "审查+测试+合并/丢弃",          "Flow",   ""),
+    ("/test",     "运行项目测试",                  "Flow",   ""),
+    ("/pipeline", "多步流水线编排",                "Pipe",   "dev \"任务\""),
+    ("/list",     "列出可用 Agent 和团队",        "Config", ""),
+    ("/config",   "查看/编辑配置",                 "Config", "show|edit"),
+    ("/shell",    "打开容器 Shell",               "Shell",  "<agent>"),
+    ("/help",     "显示帮助信息",                  "",       ""),
+    ("/exit",     "退出 Agentbox",                "",       ""),
 ]
 
 
@@ -74,18 +61,18 @@ class _Completer(Completer):
         if not text.startswith("/"):
             return
         for cmd, desc, cat, usage in _CMDS:
-            if cmd.startswith(text.lower()) or cmd.lower().startswith(text.lower()):
+            if cmd.lower().startswith(text.lower()):
                 display = f"{cmd} {usage}".strip()
+                meta = f"{cat}  {desc}" if cat else desc
                 yield Completion(cmd, start_position=-len(text),
-                                 display=display, display_meta=f"{cat}  {desc}")
+                                 display=display, display_meta=meta)
 
 
-# ── Key bindings ──
 def _key_bindings() -> KeyBindings:
     kb = KeyBindings()
 
     @kb.add("enter", filter=Condition(lambda: bool(
-        __get_app().current_buffer.complete_state)))
+        _get_app().current_buffer.complete_state)))
     def _accept(event):
         cs = event.current_buffer.complete_state
         if cs and cs.current_completion:
@@ -94,7 +81,7 @@ def _key_bindings() -> KeyBindings:
     return kb
 
 
-def __get_app():
+def _get_app():
     from prompt_toolkit.application import get_app
     return get_app()
 
@@ -102,43 +89,33 @@ def __get_app():
 # ── Splash ──
 def _splash() -> None:
     console.print()
-    console.print(f"  [{G}]     ╔═══════════════════════════════════╗[/]")
-    console.print(f"  [{G}]   ╔═╩═══════════════════════════════╩═╗[/]")
-    console.print(f"  [{G}]   ║[/]   [{DG}]◈[/]  [bold {G}]A G E N T B O X[/]  [{DG}]◈[/]   [{G}]║[/]")
-    console.print(f"  [{G}]   ║[/]   [{DG}]━━━━━━━━━━━━━━━━━━━━━[/]   [{G}]║[/]")
-    console.print(f"  [{G}]   ║[/]   [{CR} italic]AI Agent Orchestration Sandbox[/]   [{G}]║[/]")
-    console.print(f"  [{G}]   ║[/]   [{PG} dim]v{__version__}[/]                      [{G}]║[/]")
-    console.print(f"  [{G}]   ╚═════════════════════════════════╝[/]")
-    console.print(f"  [{G}]     ╚═══════════════════════════════╝[/]")
+    console.print(f"  [bold]agentbox[/bold] [dim]{__version__}[/dim]")
+    console.print(f"  [dim]AI Agent Orchestration Sandbox[/dim]")
     console.print()
-    console.print(f"  [{CR}]◈[/]  [bold {G}]/[/] 命令  [{DG}]·[/]  [bold {G}]↑↓[/] 选择  [{DG}]·[/]  [bold {G}]↵[/] 执行  [{DG}]·[/]  [bold {G}]/exit[/] 退出")
+    console.print(f"  [dim]Type [bold]/[/bold] for commands · [bold]/exit[/bold] to quit[/dim]")
     console.print()
 
 
 # ── Help ──
 def _help() -> None:
     console.print()
-    console.print(Panel(
-        f"[bold {G}]◈  Agentbox 命令列表  ◈[/]\n"
-        f"[{CR} dim]输入 / 触发补全 · ↑↓ 选择 · ↵ 执行[/]",
-        border_style=DG, padding=(0, 2)))
+    console.print(f"  [bold]Commands[/bold]")
+    console.print(f"  [dim]{'─' * 42}[/dim]")
 
     cats: dict[str, list] = {}
     for cmd, desc, cat, usage in _CMDS:
-        cats.setdefault(cat, []).append((cmd, desc, usage))
+        cats.setdefault(cat or "Other", []).append((cmd, desc, usage))
 
     for cat, cmds in cats.items():
-        console.print(f"\n  [bold {G}]{cat}[/]")
-        console.print(f"  [{DG}]{'─' * 40}[/]")
+        console.print(f"  [dim]{cat}[/dim]")
         for cmd, desc, usage in cmds:
-            c = f"[{G}]{cmd}[/]" + (f" [{CR} dim]{usage}[/]" if usage else "")
-            console.print(f"  {c:<28} [{PG}]{desc}[/]")
+            c = f"[bold]{cmd}[/bold]" + (f" [dim]{usage}[/dim]" if usage else "")
+            console.print(f"    {c:<24} [dim]{desc}[/dim]")
     console.print()
 
 
 # ── Command dispatch ──
 def _exec(ctx: Any, raw: str) -> bool:
-    """Execute a slash command. Returns False if should quit."""
     parts = raw.strip().split()
     if not parts:
         return True
@@ -146,7 +123,6 @@ def _exec(ctx: Any, raw: str) -> bool:
     name = cmd.lstrip("/")
 
     from .cli import _interactive_agent_select, _parse_agent_role
-    from .config import list_teams
     from .agents import AgentRunner
 
     config = ctx.obj["config"]
@@ -164,16 +140,15 @@ def _exec(ctx: Any, raw: str) -> bool:
         elif name in simple and args:
             runner.run_agent(name, project, prompt=" ".join(args))
         elif name == "ask":
-            q = " ".join(args) or input("  问题: ").strip()
+            q = " ".join(args) or input("  > ").strip()
             from .workflow import WorkflowEngine
             WorkflowEngine(config).ask(prompt=q, agent_id="claude", project_path=project)
         elif name == "compose":
             if not args:
-                args = input("  组合 (如 claude:coder codex:reviewer): ").strip().split()
+                args = input("  > ").strip().split()
             runner.run_compose([_parse_agent_role(s) for s in args], project)
         elif name == "team":
-            tid = args[0] if args else "dev-team"
-            runner.run_team(tid, project)
+            runner.run_team(args[0] if args else "dev-team", project)
         elif name == "compare":
             runner.run_compare(args or ["claude", "codex"], project)
         elif name == "shell":
@@ -182,11 +157,13 @@ def _exec(ctx: Any, raw: str) -> bool:
             from .orchestrator import Orchestrator
             from .orchestrator.pipeline import dev_pipeline, research_pipeline, compare_pipeline
             pt = args[0] if args else "dev"
-            task = " ".join(args[1:]) or input("  任务: ").strip()
+            task = " ".join(args[1:]) or input("  > ").strip()
             orch = Orchestrator(config)
-            pipe = {"dev": dev_pipeline, "research": research_pipeline, "compare": compare_pipeline}.get(pt, dev_pipeline)
+            pipe = {"dev": dev_pipeline, "research": research_pipeline,
+                    "compare": compare_pipeline}.get(pt, dev_pipeline)
             orch.execute(pipe(task), project)
-        elif name in ("status", "attach", "kill", "logs", "history", "diff", "merge", "review", "test", "list", "config", "init"):
+        elif name in ("status", "attach", "kill", "logs", "history",
+                       "diff", "merge", "review", "test", "list", "config", "init"):
             from . import cli
             fn = {"status": cli.status, "attach": cli.attach, "kill": cli.kill,
                   "logs": cli.logs, "history": cli.history, "diff": cli.diff_cmd,
@@ -199,31 +176,28 @@ def _exec(ctx: Any, raw: str) -> bool:
         elif name == "help":
             _help()
         elif name in ("exit", "quit", "q"):
-            console.print(f"\n  [{CR} dim]👋 再见！[/]")
+            console.print(f"  [dim]Bye.[/dim]")
             return False
         else:
-            console.print(f"\n  [{DR}]✘ 未知命令:[/] {cmd}  [{CR} dim]输入 / 查看命令[/]\n")
+            console.print(f"  [dim]Unknown: {cmd} · Type [bold]/[/bold] for commands[/dim]")
     except Exception as e:
-        console.print(f"\n  [{DR}]⚠[/] {e}")
-        console.print(f"  [{CR} dim]输入 /help 查看命令[/]\n")
+        console.print(f"  [dim]Error: {e}[/dim]")
 
     return True
 
 
 # ── prompt_toolkit style ──
 _style = PtStyle.from_dict({
-    "bottom-toolbar": f"bg:{NV} {CR}",
-    "completion-menu": f"bg:{DN} {CR}",
-    "completion-menu.completion": f"bg:{DN} {CR}",
-    "completion-menu.completion.current": f"bg:{G} #000000 bold",
-    "completion-menu.meta": f"bg:{NV} #888888",
-    "completion-menu.completion.current meta": f"bg:{G} #1a1a1a",
+    "completion-menu": "bg:#1a1a2e #e0e0e0",
+    "completion-menu.completion": "bg:#1a1a2e #e0e0e0",
+    "completion-menu.completion.current": "bg:#2a2a4a #ffffff bold",
+    "completion-menu.meta": "bg:#1a1a2e #888888",
+    "completion-menu.completion.current meta": "bg:#2a2a4a #aaaaaa",
 })
 
 
 # ── Main REPL ──
 def run_repl(ctx: Any) -> None:
-    """Run the interactive Agentbox REPL."""
     _splash()
 
     session = PromptSession(
@@ -232,34 +206,19 @@ def run_repl(ctx: Any) -> None:
         auto_suggest=AutoSuggestFromHistory(),
         complete_while_typing=True,
         key_bindings=_key_bindings(),
-        refresh_interval=0.4,
     )
 
     project = os.path.basename(ctx.obj["project_path"])
 
     def _prompt():
         return FormattedText([
-            (f"bold {G}", "◈ "),
-            ("", _cube() + " "),
-            (f"{DG}", f"{project}"),
-            (f"bold {G}", " › "),
-        ])
-
-    def _toolbar():
-        return FormattedText([
-            (f"bg:{NV} {PG}", f"  ◈ {_cube()}  "),
-            (f"bg:{NV} {CR}", "输入 "),
-            (f"bg:{NV} bold {G}", "/"),
-            (f"bg:{NV} {CR}", " 命令  ·  "),
-            (f"bg:{NV} bold {G}", "↵"),
-            (f"bg:{NV} {CR}", " 执行  ·  "),
-            (f"bg:{NV} bold {G}", "/exit"),
-            (f"bg:{NV} {CR}", " 退出  "),
+            (f"{ACCENT} bold", "›"),
+            ("", " "),
         ])
 
     while True:
         try:
-            user_input = session.prompt(_prompt, bottom_toolbar=_toolbar, style=_style)
+            user_input = session.prompt(_prompt, style=_style)
             if not user_input or not user_input.strip():
                 continue
             user_input = user_input.strip()
@@ -282,13 +241,12 @@ def run_repl(ctx: Any) -> None:
                         project_path=ctx.obj["project_path"])
 
         except KeyboardInterrupt:
-            console.print(f"\n  [{CR} dim]Ctrl+D 或 /exit 退出[/]")
+            console.print()
         except EOFError:
-            console.print(f"\n  [{CR} dim]👋 再见！[/]\n")
+            console.print(f"  [dim]Bye.[/dim]")
             break
         except Exception as e:
-            console.print(f"\n  [{DR}]⚠[/] {e}")
-            console.print(f"  [{CR} dim]REPL 已恢复[/]\n")
+            console.print(f"  [dim]Error: {e}[/dim]")
             try:
                 import subprocess
                 subprocess.run(["stty", "sane"], check=False)
