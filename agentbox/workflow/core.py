@@ -1,7 +1,10 @@
-"""Workflow engine for project-aware agent tasks."""
+"""Workflow engine — project-aware agent tasks, git review, and test integration.
+
+Coordinates AGENTS.md context injection, git diff/merge/discard workflows,
+automatic test detection, and the ``ask`` and ``review`` command pipelines.
+"""
 
 import os
-import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -16,8 +19,12 @@ from ..config import get_agent_config
 from ..sandbox import SandboxManager
 from ..state import register_window
 from ..tmux_mgr import TmuxManager
+from ..utils.commands import build_agent_command, build_docker_exec
 
 console = Console()
+
+
+# ── Workflow Engine ─────────────────────────────────────
 
 
 class WorkflowEngine:
@@ -27,6 +34,8 @@ class WorkflowEngine:
         self.config = config
         self.sandbox_mgr = SandboxManager(config)
         self.tmux_mgr = TmuxManager(config)
+
+    # ── AGENTS.md Context ───────────────────────────────
 
     def load_agents_md(self, project_path: str | Path) -> str:
         """Load project AGENTS.md guidance if it exists."""
@@ -53,6 +62,8 @@ class WorkflowEngine:
             "---"
         )
 
+    # ── Git Operations ──────────────────────────────────
+
     def is_git_repo(self, project_path: str | Path) -> bool:
         """Return True when project_path is inside a git repository."""
         result = self._run_git(["rev-parse", "--is-inside-work-tree"], project_path)
@@ -70,12 +81,26 @@ class WorkflowEngine:
         return "\n".join(parts)
 
     def get_git_diff_stats(self, project_path: str | Path) -> dict[str, Any]:
-        """Return git diff stats and changed file status."""
-        stat = self._run_git(["diff", "--stat", "HEAD", "--"], project_path)
+        """Return git diff stats and changed file status.
+
+        Works correctly even on freshly initialized repos with no commits
+        by avoiding ``git diff HEAD`` which fails when HEAD doesn't exist.
+        """
+        # Use --cached + non-staged separately so it works without HEAD
+        cached_stat = self._run_git(["diff", "--stat", "--cached", "--"], project_path)
+        uncached_stat = self._run_git(["diff", "--stat", "--"], project_path)
+
+        stat_parts = []
+        if cached_stat.stdout.strip():
+            stat_parts.append(cached_stat.stdout.strip())
+        if uncached_stat.stdout.strip():
+            stat_parts.append(uncached_stat.stdout.strip())
+        combined_stat = "\n".join(stat_parts)
+
         names = self._run_git(["status", "--short"], project_path)
         files = [line.rstrip() for line in names.stdout.splitlines() if line.strip()]
         return {
-            "stat": stat.stdout.strip(),
+            "stat": combined_stat,
             "files": files,
             "has_changes": bool(files),
         }
@@ -149,6 +174,8 @@ class WorkflowEngine:
         console.print("[green]Discarded working tree changes.[/green]")
         return True
 
+    # ── Test Detection & Execution ──────────────────────
+
     def detect_test_command(self, project_path: str | Path) -> str | None:
         """Detect a likely project test command."""
         path = Path(project_path).expanduser().resolve()
@@ -198,13 +225,6 @@ class WorkflowEngine:
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
-        except FileNotFoundError as exc:
-            return {
-                "command": test_cmd,
-                "returncode": 127,
-                "stdout": "",
-                "stderr": str(exc),
-            }
         except subprocess.TimeoutExpired as exc:
             return {
                 "command": test_cmd,
@@ -234,6 +254,8 @@ class WorkflowEngine:
         if output:
             console.print(Syntax(output, "text", word_wrap=True))
         return passed
+
+    # ── Ask & Review Workflows ─────────────────────────
 
     def ask(
         self,
@@ -309,6 +331,8 @@ class WorkflowEngine:
         console.print("[yellow]Skipped merge/discard.[/yellow]")
         return tests_passed
 
+    # ── Private Helpers ─────────────────────────────────
+
     def _launch_sandbox_agent(
         self,
         agent_id: str,
@@ -328,8 +352,8 @@ class WorkflowEngine:
         if not sandbox:
             return False
 
-        cmd = self._agent_command(agent_id, agent_config, prompt)
-        docker_cmd = f"docker exec -it agentbox-{sandbox_name} {cmd}"
+        cmd = build_agent_command(agent_id, agent_config.get("run_cmd", agent_id), prompt)
+        docker_cmd = build_docker_exec(f"agentbox-{sandbox_name}", cmd)
         window_name = self.tmux_mgr.add_agent_window(
             session_name, f"sb-{window_label}", docker_cmd, str(project_path)
         )
@@ -356,15 +380,6 @@ class WorkflowEngine:
             border_style="blue",
         ))
         return True
-
-    def _agent_command(self, agent_id: str, agent_config: dict[str, Any], prompt: str) -> str:
-        run_cmd = agent_config.get("run_cmd", agent_id)
-        quoted = shlex.quote(prompt)
-        if agent_id == "claude":
-            return f"{run_cmd} -p {quoted}"
-        if agent_id == "aider":
-            return f"{run_cmd} --message {quoted}"
-        return f"{run_cmd} {quoted}"
 
     def _run_git(self, args: list[str], project_path: str | Path) -> subprocess.CompletedProcess[str]:
         cmd = ["git", *args]

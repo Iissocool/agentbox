@@ -851,10 +851,10 @@ def test_cmd(ctx: click.Context, test_command: str | None) -> None:
 # List — ag list
 # ═══════════════════════════════════════════════════════════════════
 
-@main.command()
+@main.command(name="list")
 @click.option("--all", "show_all", is_flag=True, help="Show all details")
 @click.pass_context
-def list(ctx: click.Context, show_all: bool) -> None:
+def list_agents_cmd(ctx: click.Context, show_all: bool) -> None:
     """📋 List available agents and teams."""
     config = ctx.obj["config"]
     runner = AgentRunner(config)
@@ -1123,7 +1123,6 @@ def config_edit(ctx: click.Context) -> None:
 @click.pass_context
 def config_reset(ctx: click.Context) -> None:
     """Reset configuration to defaults."""
-    save_config({})
     from .config import DEFAULT_CONFIG
     save_config(DEFAULT_CONFIG)
     console.print("[green]✓ Configuration reset to defaults[/green]")

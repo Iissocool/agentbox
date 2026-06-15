@@ -1,7 +1,12 @@
-"""Agent runner - orchestrates agent execution in Docker sandboxes."""
+"""Agent runner — orchestrates AI agent execution inside Docker sandboxes.
+
+Each agent is launched in an isolated container and attached to a tmux
+window so the user can interact with it directly while agentbox manages
+the surrounding lifecycle (session, sandbox, state tracking).
+"""
 
 import os
-import shlex
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -15,17 +20,30 @@ from ..config import detect_local_agents, get_agent_config, get_team_config
 from ..sandbox import SandboxManager
 from ..state import register_window, unregister_session
 from ..tmux_mgr import TmuxManager
+from ..utils.commands import build_agent_command, build_docker_exec
 
 console = Console()
 
+# ── Shell-prompt detection pattern ───────────────────────
+# Matches realistic shell prompts (bare "$", "#", "❯" at end of line,
+# possibly preceded by whitespace) but NOT common output endings like
+# "Step 2>" or "done>" that would cause false-positive dead-process
+# detection.
+_SHELL_PROMPT_RE = re.compile(
+    r'(?:^|.*\s)(?:[\$#❯]\s*)$'   # "$ ", "# ", "❯ " at end of line
+    r'|^(?:[\$#❯])\s*$'           # bare "$" / "#" / "❯" on its own
+)
+
 
 class AgentRunner:
-    """Orchestrates running AI agents in Docker sandboxes."""
+    """Orchestrates running AI agents in Docker sandboxes via tmux."""
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.sandbox_mgr = SandboxManager(config)
         self.tmux_mgr = TmuxManager(config)
+
+    # ── Private Helpers ──────────────────────────────
 
     def _window_exists(self, session_name: str, window_name: str) -> bool:
         """Check if a tmux window exists in a session."""
@@ -33,19 +51,20 @@ class AgentRunner:
         return any(w["name"] == window_name for w in windows)
 
     def _window_process_alive(self, session_name: str, window_name: str) -> bool:
-        """Check if the process in a tmux window is still running (not at shell prompt)."""
+        """Check if the process in a tmux window is still running (not at shell prompt).
+
+        Returns False when the last line matches a realistic shell prompt,
+        True otherwise.  Avoids false positives on output like "Step 2>".
+        """
         try:
             content = self.tmux_mgr.capture_pane(session_name, window_name, lines=5)
-            # If the pane shows a shell prompt, the process is dead
             lines = content.strip().split("\n")
             if not lines:
                 return False
             last_line = lines[-1].strip()
-            # Shell prompt patterns: ends with $ or # or ❯ or >
-            if last_line.endswith(("$", "#", "❯", ">")) and len(last_line) < 80:
-                return False
-            # If pane is empty, process is dead
             if not last_line:
+                return False
+            if _SHELL_PROMPT_RE.match(last_line) and len(last_line) < 40:
                 return False
             return True
         except Exception:
@@ -62,12 +81,14 @@ class AgentRunner:
             # Clear the line and send the new command
             subprocess.run(["tmux", "send-keys", "-t", target, "C-u"],
                           capture_output=True, text=True)
-            self.tmux_mgr._send_literal_command(target, command)
+            self.tmux_mgr.send_keys(session_name, window_name, command)
             console.print(f"[green]✓ Restarted agent in window:[/green] {window_name}")
             return True
         except Exception as e:
             console.print(f"[red]Failed to restart window: {e}[/red]")
             return False
+
+    # ── Public API — Single Agent ────────────────────
 
     def run_agent(
         self,
@@ -122,8 +143,8 @@ class AgentRunner:
                 if not sandbox:
                     return False
                 run_cmd = agent_config.get("run_cmd", agent_id)
-                cmd = self._build_agent_command(agent_id, run_cmd, prompt)
-                docker_cmd = self._build_docker_exec(agent_id, f"agentbox-{sandbox_name}", cmd)
+                cmd = build_agent_command(agent_id, run_cmd, prompt)
+                docker_cmd = build_docker_exec(f"agentbox-{sandbox_name}", cmd)
                 self._restart_window(session_name, window_name, docker_cmd)
 
                 register_window(
@@ -146,8 +167,8 @@ class AgentRunner:
             return False
 
         run_cmd = agent_config.get("run_cmd", agent_id)
-        cmd = self._build_agent_command(agent_id, run_cmd, prompt)
-        docker_cmd = self._build_docker_exec(agent_id, f"agentbox-{sandbox_name}", cmd)
+        cmd = build_agent_command(agent_id, run_cmd, prompt)
+        docker_cmd = build_docker_exec(f"agentbox-{sandbox_name}", cmd)
         new_window_name = self.tmux_mgr.add_agent_window(
             session_name, f"sb-{window_label}", docker_cmd, project_path
         )
@@ -241,8 +262,8 @@ class AgentRunner:
                 continue
 
             run_cmd = agent_config.get("run_cmd", agent_id)
-            agent_cmd = self._build_agent_command(agent_id, run_cmd, role_prompt)
-            cmd = self._build_docker_exec(agent_id, f"agentbox-{sandbox_name}", agent_cmd)
+            agent_cmd = build_agent_command(agent_id, run_cmd, role_prompt)
+            cmd = build_docker_exec(f"agentbox-{sandbox_name}", agent_cmd)
             window_name = self.tmux_mgr.add_agent_window(
                 session_name, f"sb-{window_label}", cmd, project_path
             )
@@ -313,8 +334,8 @@ class AgentRunner:
                 continue
 
             run_cmd = agent_config.get("run_cmd", agent_id)
-            agent_cmd = self._build_agent_command(agent_id, run_cmd, agent_prompt)
-            cmd = self._build_docker_exec(agent_id, f"agentbox-{sandbox_name}", agent_cmd)
+            agent_cmd = build_agent_command(agent_id, run_cmd, agent_prompt)
+            cmd = build_docker_exec(f"agentbox-{sandbox_name}", agent_cmd)
             window_name = self.tmux_mgr.add_agent_window(
                 session_name, f"sb-{window_label}", cmd, project_path
             )
@@ -367,8 +388,8 @@ class AgentRunner:
             return False
 
         run_cmd = first_config.get("run_cmd", first_agent)
-        cmd = self._build_agent_command(first_agent, run_cmd, prompt)
-        docker_cmd = self._build_docker_exec(first_agent, f"agentbox-{sandbox_name}", cmd)
+        cmd = build_agent_command(first_agent, run_cmd, prompt)
+        docker_cmd = build_docker_exec(f"agentbox-{sandbox_name}", cmd)
         window_name = self.tmux_mgr.add_agent_window(
             session_name, f"compare-{first_agent}", docker_cmd, project_path
         )
@@ -394,10 +415,20 @@ class AgentRunner:
                 continue
 
             run_cmd = agent_config.get("run_cmd", agent_id)
-            cmd = self._build_agent_command(agent_id, run_cmd, prompt)
-            docker_cmd = self._build_docker_exec(agent_id, f"agentbox-{sb_name}", cmd)
+            cmd = build_agent_command(agent_id, run_cmd, prompt)
+            docker_cmd = build_docker_exec(f"agentbox-{sb_name}", cmd)
             self.tmux_mgr.add_agent_pane(
                 session_name, window_name, agent_id, docker_cmd, project_path
+            )
+            register_window(
+                session_name=session_name,
+                window_name=window_name,
+                agent_id=agent_id,
+                role="compare",
+                project_path=project_path,
+                project_name=project_name,
+                sandbox=True,
+                prompt=prompt,
             )
 
         console.print(Panel(
@@ -459,7 +490,7 @@ class AgentRunner:
 
         # Create shell window: docker exec -it <container> bash
         mount_point = self.config.get("sandbox", {}).get("mount_point", "/workspace")
-        shell_cmd = self._build_docker_exec(agent_id, container_name, "bash")
+        shell_cmd = build_docker_exec(container_name, "bash")
         new_window_name = self.tmux_mgr.add_agent_window(
             session_name, f"shell-{agent_id}", shell_cmd, project_path
         )
@@ -511,7 +542,7 @@ class AgentRunner:
             return shell_window_name
 
         container_name = f"agentbox-{sandbox_name}"
-        shell_cmd = self._build_docker_exec(agent_id, container_name, "bash")
+        shell_cmd = build_docker_exec(container_name, "bash")
 
         new_window_name = self.tmux_mgr.add_agent_window(
             session_name, f"shell-{agent_id}", shell_cmd, project_path
@@ -548,17 +579,3 @@ class AgentRunner:
             )
         console.print(table)
 
-    def _build_agent_command(self, agent_id: str, run_cmd: str, prompt: str | None = None) -> str:
-        """Build a shell-safe agent command."""
-        if not prompt:
-            return run_cmd
-        quoted = shlex.quote(prompt)
-        if agent_id == "claude":
-            return f"{run_cmd} -p {quoted}"
-        if agent_id == "aider":
-            return f"{run_cmd} --message {quoted}"
-        return f"{run_cmd} {quoted}"
-
-    def _build_docker_exec(self, agent_id: str, container_name: str, command: str) -> str:
-        """Build a clean docker exec command (no env injection)."""
-        return f"docker exec -it {container_name} {command}"

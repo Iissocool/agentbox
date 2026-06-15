@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentbox"
-version = "0.1.0"
+version = "0.3.0"
 description = "AI Agent orchestration CLI - run multiple coding agents in Docker sandboxes via tmux"
 readme = "README.md"
 license = {text = "MIT"}

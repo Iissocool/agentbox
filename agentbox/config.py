@@ -1,7 +1,12 @@
-"""Configuration management for agentbox."""
+"""Configuration management — YAML-based settings with deep-merge defaults.
+
+Agentbox stores its configuration in ``~/.agentbox/config.yaml``.  On first
+run a default configuration is written automatically.  User-provided values
+are deep-merged on top of the defaults so that partial overrides work
+correctly.
+"""
 
 import copy
-import os
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +15,9 @@ import yaml
 
 DEFAULT_CONFIG_DIR = Path.home() / ".agentbox"
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.yaml"
+
+
+# ── Default Configuration ──────────────────────────────────
 
 
 DEFAULT_CONFIG = {
@@ -95,6 +103,9 @@ DEFAULT_CONFIG = {
 }
 
 
+# ── Public API ─────────────────────────────────────────────
+
+
 def ensure_config_dir() -> Path:
     """Ensure config directory exists."""
     DEFAULT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -105,7 +116,7 @@ def load_config() -> dict[str, Any]:
     """Load configuration from file, creating default if not exists."""
     if not DEFAULT_CONFIG_FILE.exists():
         save_config(DEFAULT_CONFIG)
-        return DEFAULT_CONFIG.copy()
+        return copy.deepcopy(DEFAULT_CONFIG)
 
     with open(DEFAULT_CONFIG_FILE, "r") as f:
         config = yaml.safe_load(f)
@@ -121,11 +132,17 @@ def load_config() -> dict[str, Any]:
     return merged
 
 
+# ── Persistence ────────────────────────────────────────────
+
+
 def save_config(config: dict[str, Any]) -> None:
     """Save configuration to file."""
     ensure_config_dir()
     with open(DEFAULT_CONFIG_FILE, "w") as f:
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+
+
+# ── Config Accessors ───────────────────────────────────────
 
 
 def get_agent_config(config: dict[str, Any], agent_name: str) -> dict[str, Any] | None:
@@ -174,6 +191,9 @@ def detect_local_agents() -> list[dict[str, str]]:
             found.append({"id": agent_id, "cli": cli_name, "path": path})
 
     return found
+
+
+# ── Internal Helpers ───────────────────────────────────────
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
