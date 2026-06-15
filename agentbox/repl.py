@@ -222,7 +222,7 @@ def _exec(ctx: Any, raw: str) -> bool:
             fn = {"status": cli.status, "attach": cli.attach, "kill": cli.kill,
                   "logs": cli.logs, "history": cli.history, "diff": cli.diff_cmd,
                   "merge": cli.merge, "review": cli.review, "test": cli.test_cmd,
-                  "list": cli.list, "config": cli.config_show, "init": cli.init}[name]
+                  "list": cli.list_agents_cmd, "config": cli.config_show, "init": cli.init}[name]
             if name == "merge":
                 ctx.invoke(fn, message=" ".join(args) or "Update project")
             else:
