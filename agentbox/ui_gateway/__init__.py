@@ -120,6 +120,46 @@ async def handle_agent_open(request: web.Request) -> web.Response:
 
 
 
+async def handle_workspaces(request: web.Request) -> web.Response:
+    from ..workspace import list_workspaces, get_available_agents, get_pipeline_templates
+    workspaces = list_workspaces()
+    return web.json_response({"workspaces": workspaces, "available_agents": get_available_agents(), "pipeline_templates": get_pipeline_templates()})
+
+
+async def handle_workspace_create(request: web.Request) -> web.Response:
+    from ..workspace import create_workspace
+    body = await request.json()
+    folder_path = body.get("folder_path", "")
+    if not folder_path:
+        return web.json_response({"error": "folder_path required"}, status=400)
+    name = body.get("name", "")
+    agents = body.get("agents")
+    pipeline = body.get("pipeline", "single-agent")
+    try:
+        ws = create_workspace(folder_path, name=name, agents=agents, pipeline=pipeline)
+        return web.json_response(ws)
+    except FileNotFoundError as e:
+        return web.json_response({"error": str(e)}, status=404)
+
+
+async def handle_workspace_update(request: web.Request) -> web.Response:
+    from ..workspace import update_workspace
+    ws_id = request.match_info.get("ws_id", "")
+    body = await request.json()
+    ws = update_workspace(ws_id, **body)
+    if not ws:
+        return web.json_response({"error": "not found"}, status=404)
+    return web.json_response(ws)
+
+
+async def handle_workspace_delete(request: web.Request) -> web.Response:
+    from ..workspace import delete_workspace
+    ws_id = request.match_info.get("ws_id", "")
+    ok = delete_workspace(ws_id)
+    return web.json_response({"deleted": ok})
+
+
+
 async def handle_stream(request: web.Request) -> web.WebSocketResponse:
     """WS /stream — real-time event stream to Menu Bar App."""
     ws = web.WebSocketResponse()
@@ -209,6 +249,10 @@ def create_app() -> web.Application:
     app.router.add_get("/pipeline/{run_id}", handle_pipeline_detail)
     app.router.add_get("/context/{run_id}", handle_context)
     app.router.add_post("/agent/open", handle_agent_open)
+    app.router.add_get("/workspaces", handle_workspaces)
+    app.router.add_post("/workspaces", handle_workspace_create)
+    app.router.add_put("/workspaces/{ws_id}", handle_workspace_update)
+    app.router.add_delete("/workspaces/{ws_id}", handle_workspace_delete)
     app.router.add_get("/stream", handle_stream)
     app.router.add_get("/pipeline", handle_pipeline)
     return app
