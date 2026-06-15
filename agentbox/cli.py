@@ -1205,8 +1205,6 @@ def stack_status(ctx: click.Context) -> None:
     mgr.status(ctx.obj["project_path"])
 
 
-if __name__ == "__main__":
-    main()
 # ── UI Gateway Command ──────────────────────────────────────
 
 
@@ -1214,14 +1212,39 @@ if __name__ == "__main__":
 @click.option("--port", default=18733, help="Gateway server port")
 @click.pass_context
 def gateway(ctx: click.Context, port: int) -> None:
-    """🌐 Start the UI Gateway server for macOS Menu Bar App."""
+    """🌐 Start the UI Gateway server (used internally by the menu bar app)."""
     from .ui_gateway import start_gateway
     console.print(Panel(
         f"[green]Starting UI Gateway[/green]\n\n"
         f"Port: [cyan]{port}[/cyan]\n"
         f"Status: [cyan]http://localhost:{port}/status[/cyan]\n"
         f"Stream: [cyan]ws://localhost:{port}/stream[/cyan]\n"
-        f"Pipeline: [cyan]ws://localhost:{port}/pipeline[/cyan]",
+        f"Pipeline: [cyan]ws://localhost:{port}/pipeline[/cyan]\n\n"
+        f"[dim]Tip: use [bold]ag menubar[/bold] to launch the desktop app instead.[/dim]",
         title="UI Gateway", border_style="blue",
     ))
     start_gateway(port)
+
+
+@main.command("menubar")
+@click.option("--rebuild", is_flag=True, help="Force rebuild the .app bundle")
+@click.option("--port", default=18733, help="Gateway port for the menu bar app")
+@click.pass_context
+def menubar(ctx: click.Context, rebuild: bool, port: int) -> None:
+    """🍎 Launch the macOS notch/menu bar desktop app."""
+    from .menubar import launch_menubar
+    launch_menubar(rebuild=rebuild, port=port)
+
+
+@main.command("notch")
+@click.option("--rebuild", is_flag=True, help="Force rebuild the .app bundle")
+@click.option("--port", default=18733, help="Gateway port for the notch app")
+@click.pass_context
+def notch(ctx: click.Context, rebuild: bool, port: int) -> None:
+    """🧿 Launch the macOS notch app (NotchDrop-style startup)."""
+    from .menubar import launch_menubar
+    launch_menubar(rebuild=rebuild, port=port)
+
+
+if __name__ == "__main__":
+    main()

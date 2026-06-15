@@ -1,86 +1,9 @@
 // AgentboxMenuBar — macOS Menu Bar App
-// 连接 http://localhost:18733/status 和 ws://localhost:18733/stream
-// 显示实时 Agent 状态
+// 使用 SwiftUI MenuBarExtra 原生 API
+// 连接 http://localhost:18733/status
 
 import SwiftUI
 import Combine
-
-@main
-struct AgentboxMenuBarApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-
-    var body: some Scene {
-        // 无主窗口，仅菜单栏
-        Settings {}
-    }
-}
-
-// MARK: - AppDelegate (Menu Bar 控制)
-
-class AppDelegate: NSObject, NSApplicationDelegate {
-    var statusItem: NSStatusItem!
-    var popover: NSPopover!
-    var statusMonitor: StatusMonitor!
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // 创建菜单栏状态点
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-
-        if let button = statusItem.button {
-            button.title = "●"
-            button.font = NSFont.systemFont(ofSize: 14)
-            button.textColor = .green
-        }
-
-        // 创建 Popover
-        let contentView = StatusView()
-        popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 400)
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: contentView)
-
-        // 点击事件
-        statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.target = self
-
-        // 启动状态监控
-        statusMonitor = StatusMonitor()
-        statusMonitor.startMonitoring { [weak self] status in
-            DispatchQueue.main.async {
-                self?.updateStatusBar(status)
-            }
-        }
-    }
-
-    @objc func togglePopover() {
-        if let button = statusItem.button {
-            if popover.isShown {
-                popover.performClose(button)
-            } else {
-                popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            }
-        }
-    }
-
-    func updateStatusBar(_ status: SystemStatus) {
-        guard let button = statusItem.button else { return }
-
-        switch status.status {
-        case "running":
-            button.textColor = .systemYellow
-        case "degraded":
-            button.textColor = .systemRed
-        default:
-            button.textColor = .systemGreen
-        }
-
-        if !status.activeAgents.isEmpty {
-            button.toolTip = "Active: \(status.activeAgents.joined(separator: ", "))"
-        } else {
-            button.toolTip = "Agentbox — Idle"
-        }
-    }
-}
 
 // MARK: - 数据模型
 
@@ -92,6 +15,7 @@ struct SystemStatus: Codable {
     var system_health: String = "ok"
     var alerts: [AlertItem] = []
     var recent_events: [EventItem] = []
+    var timestamp: Double = 0
 
     struct AlertItem: Codable, Identifiable {
         var level: String
@@ -108,48 +32,80 @@ struct SystemStatus: Codable {
     }
 }
 
-// MARK: - 状态监控 (HTTP + WebSocket)
+// MARK: - 状态监控
 
 class StatusMonitor: ObservableObject {
     @Published var currentStatus = SystemStatus()
-    private var cancellables = Set<AnyCancellable>()
+    private var timer: Timer?
     private let baseURL = "http://localhost:18733"
 
-    func startMonitoring(onUpdate: @escaping (SystemStatus) -> Void) {
-        // 定时轮询 /status
-        Timer.publish(every: 2, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                self?.fetchStatus(onUpdate: onUpdate)
-            }
-            .store(in: &cancellables)
-
-        // 初始获取
-        fetchStatus(onUpdate: onUpdate)
+    func startMonitoring() {
+        fetchStatus()
+        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.fetchStatus()
+        }
     }
 
-    private func fetchStatus(onUpdate: @escaping (SystemStatus) -> Void) {
+    func stopMonitoring() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func fetchStatus() {
         guard let url = URL(string: "\(baseURL)/status") else { return }
 
-        URLSession.shared.dataTaskPublisher(for: url)
-            .map(\.data)
-            .decode(type: SystemStatus.self, decoder: JSONDecoder())
-            .receive(on: DispatchQueue.main)
-            .sink { _ in } receiveValue: { [weak self] status in
-                self?.currentStatus = status
-                onUpdate(status)
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let data = data, error == nil else { return }
+            if let status = try? JSONDecoder().decode(SystemStatus.self, from: data) {
+                DispatchQueue.main.async {
+                    self?.currentStatus = status
+                }
             }
-            .store(in: &cancellables)
+        }.resume()
     }
 }
 
-// MARK: - SwiftUI 视图
+// MARK: - AppDelegate (防止 macOS 自动终止代理应用)
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Keep alive as menu bar agent
+    }
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+}
+
+// MARK: - App
+
+@main
+struct AgentboxMenuBarApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var monitor = StatusMonitor()
+
+    var body: some Scene {
+        MenuBarExtra("Agentbox", systemImage: statusBarIcon) {
+            StatusView(monitor: monitor)
+        }
+    }
+
+    private var statusBarIcon: String {
+        switch monitor.currentStatus.status {
+        case "running":
+            return "circle.fill"
+        case "degraded":
+            return "exclamationmark.circle.fill"
+        default:
+            return "circle"
+        }
+    }
+}
+
+// MARK: - 视图
 
 struct StatusView: View {
-    @ObservedObject var monitor = StatusMonitor()
+    @ObservedObject var monitor: StatusMonitor
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             // 标题
             HStack {
                 Text("Agentbox")
@@ -158,13 +114,25 @@ struct StatusView: View {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 10, height: 10)
+                Text(monitor.currentStatus.status)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Divider()
 
             // Active Agents
-            if !monitor.currentStatus.active_agents.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+            if monitor.currentStatus.active_agents.isEmpty {
+                HStack {
+                    Image(systemName: "moon.fill")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("No active agents")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
                     Text("Active Agents")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -172,20 +140,18 @@ struct StatusView: View {
                         HStack {
                             Image(systemName: "person.fill")
                                 .font(.caption2)
+                                .foregroundColor(.green)
                             Text(agent)
                                 .font(.system(.caption, design: .monospaced))
                         }
                     }
                 }
-            } else {
-                Text("No active agents")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
 
             // Pipeline
             if !monitor.currentStatus.pipeline.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                Divider()
+                VStack(alignment: .leading, spacing: 3) {
                     Text("Pipeline: \(monitor.currentStatus.pipeline)")
                         .font(.caption)
                     ProgressView(value: monitor.currentStatus.progress)
@@ -198,28 +164,28 @@ struct StatusView: View {
 
             // Alerts
             if !monitor.currentStatus.alerts.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                Divider()
+                VStack(alignment: .leading, spacing: 3) {
                     Text("Alerts")
                         .font(.caption)
                         .foregroundColor(.red)
                     ForEach(monitor.currentStatus.alerts) { alert in
-                        Text(alert.message)
+                        Text("⚠ \(alert.message)")
                             .font(.caption2)
                             .foregroundColor(alert.level == "error" ? .red : .orange)
                     }
                 }
             }
 
-            Divider()
-
             // Recent Events
             if !monitor.currentStatus.recent_events.isEmpty {
+                Divider()
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Recent Events")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     ForEach(monitor.currentStatus.recent_events.prefix(5)) { event in
-                        Text("\(event.type) from \(event.source)")
+                        Text("• \(event.type)")
                             .font(.system(.caption2, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
@@ -228,12 +194,23 @@ struct StatusView: View {
 
             Spacer()
 
-            Text("Port: 18733")
-                .font(.caption2)
-                .foregroundColor(.secondary)
+            Divider()
+
+            HStack {
+                Text("localhost:18733")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("v0.3.0")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
         .padding()
-        .frame(width: 300, height: 380)
+        .frame(width: 280, height: 360)
+        .onAppear {
+            monitor.startMonitoring()
+        }
     }
 
     private var statusColor: Color {

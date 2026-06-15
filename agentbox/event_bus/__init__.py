@@ -105,6 +105,14 @@ class EventBus:
         if callback in subs:
             subs.remove(callback)
 
+    def unsubscribe_all(self, callback: AsyncCallback | SyncCallback) -> None:
+        """Unsubscribe a callback from all event types and global subscribers."""
+        if callback in self._global_subscribers:
+            self._global_subscribers.remove(callback)
+        for subs in self._subscribers.values():
+            if callback in subs:
+                subs.remove(callback)
+
     # ── Publish ────────────────────────────────────────
 
     def publish(self, event: Event) -> None:

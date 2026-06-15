@@ -11,14 +11,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import time
 from typing import Any
 
 from aiohttp import web, WSMsgType
+from rich.console import Console
 
 from ..event_bus import EventBus, Event
 from ..agents.ui_agent import get_system_snapshot
 from ..config import load_config
+
+console = Console()
 
 
 # ── Default Port ───────────────────────────────────────────
@@ -165,20 +169,51 @@ def create_app() -> web.Application:
 # ── Server Runner ──────────────────────────────────────────
 
 
-async def run_server(port: int = DEFAULT_PORT) -> None:
-    """Run the UI Gateway server."""
-    app = create_app()
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "localhost", port)
-    await site.start()
-    print(f"UI Gateway running on http://localhost:{port}")
-    # Keep running
+def _gateway_responding(port: int) -> bool:
+    """Return True if something is already serving /status on *port*."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+async def _wait_for_shutdown() -> None:
+    """Block until cancelled (attach mode when gateway already running)."""
     try:
         while True:
             await asyncio.sleep(3600)
     except asyncio.CancelledError:
         pass
+
+
+async def run_server(port: int = DEFAULT_PORT) -> None:
+    """Run the UI Gateway server."""
+    if _gateway_responding(port):
+        console.print(
+            f"[yellow]Gateway already running on http://localhost:{port}[/yellow]"
+        )
+        await _wait_for_shutdown()
+        return
+
+    app = create_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", port)
+    try:
+        await site.start()
+    except OSError as exc:
+        await runner.cleanup()
+        if exc.errno == 48 and _gateway_responding(port):
+            console.print(
+                f"[yellow]Gateway already running on http://localhost:{port}[/yellow]"
+            )
+            await _wait_for_shutdown()
+            return
+        raise
+    console.print(f"UI Gateway running on http://localhost:{port}")
+    try:
+        await _wait_for_shutdown()
     finally:
         await runner.cleanup()
 
