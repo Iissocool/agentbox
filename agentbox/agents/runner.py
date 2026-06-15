@@ -23,6 +23,7 @@ from ..tmux_mgr import TmuxManager
 from ..utils.commands import build_agent_command, build_docker_exec
 from ..skills import load_skill as _load_skill
 from ..agents.contracts import load_contract as _load_contract
+from ..event_bus import emit as _emit
 
 console = Console()
 
@@ -209,6 +210,9 @@ class AgentRunner:
                 agent_id, session_name, sandbox_name,
                 project_path, project_name,
             )
+
+        # ── Emit agent started event ──
+        _emit("agent_event", "runner", {"agent": agent_id, "event": "started", "role": role, "session": session_name})
 
         role_info = f"Role:      [yellow]{role}[/yellow]\n" if role else ""
         shell_info = f"Shell:     [green]shell-{agent_id}[/green] (Ctrl+B n/p 切换)\n" if with_shell else ""

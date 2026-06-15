@@ -1,0 +1,192 @@
+"""UI Gateway — HTTP/WebSocket server for macOS Menu Bar App integration.
+
+Exposes:
+  GET /status       — system status JSON
+  GET /events       — recent event history
+  WS  /stream       — real-time event stream
+  WS  /pipeline     — pipeline status stream
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import time
+from typing import Any
+
+from aiohttp import web, WSMsgType
+
+from ..event_bus import EventBus, Event
+from ..agents.ui_agent import get_system_snapshot
+from ..config import load_config
+
+
+# ── Default Port ───────────────────────────────────────────
+
+DEFAULT_PORT = 18733
+
+
+# ── Route Handlers ─────────────────────────────────────────
+
+
+async def handle_status(request: web.Request) -> web.Response:
+    """GET /status — return current system status as JSON."""
+    snapshot = get_system_snapshot()
+    snapshot["system"] = "agentbox"
+    snapshot["timestamp"] = time.time()
+
+    # Enrich with tmux sessions and docker containers
+    try:
+        from ..tmux_mgr import TmuxManager
+        config = load_config()
+        tmux = TmuxManager(config)
+        snapshot["tmux_sessions"] = tmux.list_sessions()
+    except Exception:
+        snapshot["tmux_sessions"] = []
+
+    try:
+        import docker as docker_lib
+        client = docker_lib.from_env()
+        containers = client.containers.list(filters={"name": "agentbox-"})
+        snapshot["docker_containers"] = [
+            {"name": c.name, "status": c.status, "image": str(c.image.tags)}
+            for c in containers
+        ]
+    except Exception:
+        snapshot["docker_containers"] = []
+
+    # Pipeline state
+    from ..orchestrator.engine import Orchestrator
+    runs = Orchestrator.list_pipeline_runs()
+    snapshot["running_pipelines"] = [r for r in runs if r.get("status") == "running"]
+
+    return web.json_response(snapshot)
+
+
+async def handle_events(request: web.Request) -> web.Response:
+    """GET /events — return recent event history."""
+    bus = EventBus.get()
+    event_type = request.query.get("type")
+    limit = int(request.query.get("limit", "50"))
+    events = bus.get_history_dicts(event_type=event_type, limit=limit)
+    return web.json_response({"events": events, "count": len(events)})
+
+
+async def handle_stream(request: web.Request) -> web.WebSocketResponse:
+    """WS /stream — real-time event stream to Menu Bar App."""
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    # Queue for this subscriber
+    queue: asyncio.Queue[Event] = asyncio.Queue()
+
+    async def on_event(event: Event) -> None:
+        await queue.put(event)
+
+    bus = EventBus.get()
+    bus.subscribe_all(on_event)
+
+    try:
+        # Send initial status
+        snapshot = get_system_snapshot()
+        await ws.send_json({
+            "event": "initial_status",
+            "data": snapshot,
+        })
+
+        # Stream events
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                await ws.send_json(event.to_dict())
+            except asyncio.TimeoutError:
+                # Heartbeat / keep-alive
+                await ws.send_json({"event": "heartbeat", "timestamp": time.time()})
+    except Exception:
+        pass
+    finally:
+        bus.unsubscribe_all(on_event)
+
+    return ws
+
+
+async def handle_pipeline(request: web.Request) -> web.WebSocketResponse:
+    """WS /pipeline — pipeline-specific status stream."""
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    queue: asyncio.Queue[Event] = asyncio.Queue()
+
+    async def on_pipeline_event(event: Event) -> None:
+        if event.type in ("pipeline_event", "agent_event"):
+            await queue.put(event)
+
+    bus = EventBus.get()
+    bus.subscribe("pipeline_event", on_pipeline_event)
+    bus.subscribe("agent_event", on_pipeline_event)
+
+    try:
+        # Send initial pipeline state
+        from ..orchestrator.engine import Orchestrator
+        runs = Orchestrator.list_pipeline_runs()
+        await ws.send_json({
+            "event": "pipeline_init",
+            "pipelines": runs,
+        })
+
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                await ws.send_json(event.to_dict())
+            except asyncio.TimeoutError:
+                await ws.send_json({"event": "heartbeat", "timestamp": time.time()})
+    except Exception:
+        pass
+    finally:
+        bus.unsubscribe("pipeline_event", on_pipeline_event)
+        bus.unsubscribe("agent_event", on_pipeline_event)
+
+    return ws
+
+
+# ── App Factory ────────────────────────────────────────────
+
+
+def create_app() -> web.Application:
+    """Create the aiohttp application with all routes."""
+    app = web.Application()
+    app.router.add_get("/status", handle_status)
+    app.router.add_get("/events", handle_events)
+    app.router.add_get("/stream", handle_stream)
+    app.router.add_get("/pipeline", handle_pipeline)
+    return app
+
+
+# ── Server Runner ──────────────────────────────────────────
+
+
+async def run_server(port: int = DEFAULT_PORT) -> None:
+    """Run the UI Gateway server."""
+    app = create_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "localhost", port)
+    await site.start()
+    print(f"UI Gateway running on http://localhost:{port}")
+    # Keep running
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await runner.cleanup()
+
+
+def start_gateway(port: int = DEFAULT_PORT) -> None:
+    """Start the UI Gateway (blocking)."""
+    asyncio.run(run_server(port))
+
+
+if __name__ == "__main__":
+    start_gateway()

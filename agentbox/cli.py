@@ -1207,3 +1207,21 @@ def stack_status(ctx: click.Context) -> None:
 
 if __name__ == "__main__":
     main()
+# ── UI Gateway Command ──────────────────────────────────────
+
+
+@main.command()
+@click.option("--port", default=18733, help="Gateway server port")
+@click.pass_context
+def gateway(ctx: click.Context, port: int) -> None:
+    """🌐 Start the UI Gateway server for macOS Menu Bar App."""
+    from .ui_gateway import start_gateway
+    console.print(Panel(
+        f"[green]Starting UI Gateway[/green]\n\n"
+        f"Port: [cyan]{port}[/cyan]\n"
+        f"Status: [cyan]http://localhost:{port}/status[/cyan]\n"
+        f"Stream: [cyan]ws://localhost:{port}/stream[/cyan]\n"
+        f"Pipeline: [cyan]ws://localhost:{port}/pipeline[/cyan]",
+        title="UI Gateway", border_style="blue",
+    ))
+    start_gateway(port)

@@ -18,6 +18,7 @@ from ..config import get_agent_config
 from ..sandbox import SandboxManager
 from ..state import register_window
 from ..tmux_mgr import TmuxManager
+from ..event_bus import emit as _emit
 from ..utils.commands import build_agent_command, build_docker_exec
 from .pipeline import Pipeline, PipelineStep, StepType
 
@@ -138,6 +139,7 @@ class Orchestrator:
             "context_keys": list(context.keys()),
         }
         _save_pipeline_run(run_id, run_data)
+        _emit("pipeline_event", "orchestrator", {"pipeline": pipeline.name, "event": "started", "run_id": run_id})
 
         console.print(
             Panel(
@@ -202,6 +204,7 @@ class Orchestrator:
             _save_pipeline_run(run_id, run_data)
 
         run_data["status"] = "completed"
+        _emit("pipeline_event", "orchestrator", {"pipeline": pipeline.name, "event": "completed", "run_id": run_id})
         run_data["completed_at"] = datetime.now().isoformat()
         _save_pipeline_run(run_id, run_data)
 
