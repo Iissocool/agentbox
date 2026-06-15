@@ -1,10 +1,6 @@
-// AgentboxNotch — NotchDrop-style drag-drop workspace creator
-// Uses NSDraggingDestination protocol for reliable file drag-drop
+// AgentboxNotch — Always-on drag target + close buttons
 import SwiftUI
 import Combine
-import UniformTypeIdentifiers
-
-// MARK: - Data Models
 
 struct WorkspaceItem: Codable, Identifiable {
     var id: String; var name: String; var folder_path: String; var agents: [String]; var pipeline: String; var status: String; var created_at: String
@@ -56,14 +52,16 @@ class StatusMonitor: ObservableObject {
         var req = URLRequest(url: url); req.httpMethod = "DELETE"
         URLSession.shared.dataTask(with: req) { [weak self] _, _, _ in DispatchQueue.main.async { self?.fetchWorkspaces() } }.resume()
     }
+    func deleteAllWorkspaces() {
+        for ws in workspaces { deleteWorkspace(id: ws.id) }
+    }
 }
 
-// MARK: - Drag-Drop NSView (like NotchDrop)
+// MARK: - Always-on Drag Target NSView
 
 class NotchDropTargetView: NSView {
     var monitor: StatusMonitor?
     var onDropFolder: ((String) -> Void)?
-    var isDragOver: Bool = false { didSet { monitor?.isDragOver = isDragOver } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -72,15 +70,20 @@ class NotchDropTargetView: NSView {
     required init?(coder: NSCoder) { super.init(coder: coder); registerForDraggedTypes([.fileURL]) }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        if hasFolderDrag(sender) { isDragOver = true; return .copy }
-        return NSDragOperation()
+        if hasFolderDrag(sender) {
+            DispatchQueue.main.async { self.monitor?.isDragOver = true }
+            return .copy
+        }
+        return []
     }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        return hasFolderDrag(sender) ? .copy : NSDragOperation()
+        return hasFolderDrag(sender) ? .copy : []
     }
-    override func draggingExited(_ sender: NSDraggingInfo?) { isDragOver = false }
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        DispatchQueue.main.async { self.monitor?.isDragOver = false }
+    }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        isDragOver = false
+        DispatchQueue.main.async { self.monitor?.isDragOver = false }
         guard let path = extractFolderPath(sender) else { return false }
         onDropFolder?(path)
         return true
@@ -98,18 +101,15 @@ class NotchDropTargetView: NSView {
     }
 }
 
-struct NotchDropRepresentable: NSViewRepresentable {
+struct NotchDropRep: NSViewRepresentable {
     @ObservedObject var monitor: StatusMonitor
     var onDrop: (String) -> Void
     func makeNSView(context: Context) -> NotchDropTargetView {
         let v = NotchDropTargetView(frame: .zero)
-        v.monitor = monitor
-        v.onDropFolder = onDrop
-        return v
+        v.monitor = monitor; v.onDropFolder = onDrop; return v
     }
     func updateNSView(_ nsView: NotchDropTargetView, context: Context) {
-        nsView.monitor = monitor
-        nsView.onDropFolder = onDrop
+        nsView.monitor = monitor; nsView.onDropFolder = onDrop
     }
 }
 
@@ -139,20 +139,19 @@ struct NotchFloatingView: View {
     @State private var selectedTab = 0
     var body: some View {
         ZStack {
-            // Full drag target behind everything
-            NotchDropRepresentable(monitor: monitor, onDrop: { path in
+            // Always-on drag target as background
+            NotchDropRep(monitor: monitor, onDrop: { path in
                 monitor.createWorkspace(folderPath: path)
                 selectedTab = 1
-                if !isExpanded { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isExpanded = true } }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isExpanded = true }
             })
 
-            // UI on top
             VStack(spacing: 0) {
-                // Notch bar
+                // Notch bar — always visible, always accepts drag
                 HStack(spacing: 8) {
                     Circle().fill(statusColor).frame(width: 8, height: 8).shadow(color: statusColor.opacity(0.8), radius: 4)
                     if monitor.isDragOver {
-                        Text("DROP HERE").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(.green).tracking(2)
+                        Text("DROP FOLDER").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(.green).tracking(2)
                     } else if monitor.currentStatus.active_agents.isEmpty {
                         Text("AGENTBOX").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.6)).tracking(1.5)
                     } else {
@@ -162,28 +161,41 @@ struct NotchFloatingView: View {
                         Text("\(Int(monitor.currentStatus.progress * 100))%").font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(.white.opacity(0.8))
                     }
                     Spacer(minLength: 0)
-                    if !monitor.isDragOver {
+                    if monitor.isDragOver {
+                        Image(systemName: "arrow.down.doc.fill").font(.system(size: 10)).foregroundColor(.green)
+                    } else {
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .bold)).foregroundColor(.white.opacity(0.4))
                     }
                 }
                 .padding(.horizontal, 16)
-                .frame(width: monitor.isDragOver ? 260 : 200, height: monitor.isDragOver ? 40 : 32)
+                .frame(width: monitor.isDragOver ? 260 : 200, height: monitor.isDragOver ? 44 : 32)
                 .background(
-                    RoundedRectangle(cornerRadius: monitor.isDragOver ? 20 : 16)
-                        .fill(monitor.isDragOver ? Color.green.opacity(0.25) : Color.black.opacity(0.85))
-                        .overlay(RoundedRectangle(cornerRadius: monitor.isDragOver ? 20 : 16).stroke(monitor.isDragOver ? Color.green : Color.clear, lineWidth: 2))
+                    RoundedRectangle(cornerRadius: monitor.isDragOver ? 22 : 16)
+                        .fill(monitor.isDragOver ? Color.green.opacity(0.3) : Color.black.opacity(0.85))
+                        .overlay(RoundedRectangle(cornerRadius: monitor.isDragOver ? 22 : 16).stroke(monitor.isDragOver ? Color.green : Color.clear, lineWidth: 2))
                 )
-                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: monitor.isDragOver)
+                .animation(.spring(response: 0.2, dampingFraction: 0.7), value: monitor.isDragOver)
                 .contentShape(Rectangle())
-                .onTapGesture { if !monitor.isDragOver { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isExpanded.toggle() } } }
-                .onHover { if $0 && !isExpanded && !monitor.isDragOver { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isExpanded = true } } }
+                .onTapGesture { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isExpanded.toggle() } }
+                .onHover { hovering in
+                    // Only auto-expand on hover when NOT dragging
+                    if hovering && !isExpanded && !monitor.isDragOver {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { isExpanded = true }
+                    }
+                }
+                .onChange(of: monitor.isDragOver) { dragging in
+                    // Auto-expand when drag enters, don't collapse during drag
+                    if dragging && !isExpanded {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { isExpanded = true }
+                    }
+                }
 
-                // Expanded panel
-                if isExpanded && !monitor.isDragOver {
+                // Expanded panel (stays open during drag)
+                if isExpanded {
                     VStack(spacing: 0) {
                         HStack(spacing: 0) {
                             TabBtn(title: "Status", sel: selectedTab == 0) { selectedTab = 0 }
-                            TabBtn(title: "Workspaces", sel: selectedTab == 1) { selectedTab = 1 }
+                            TabBtn(title: "Workspaces (\(monitor.workspaces.count))", sel: selectedTab == 1) { selectedTab = 1 }
                         }.padding(.top, 8)
                         if selectedTab == 0 { StatusPanel(monitor: monitor) }
                         else { WsPanel(monitor: monitor) }
@@ -206,7 +218,7 @@ struct NotchFloatingView: View {
 
 struct TabBtn: View {
     var title: String; var sel: Bool; var action: () -> Void
-    var body: some View { Button(action: action) { Text(title).font(.system(size: 11, weight: sel ? .bold : .regular)).foregroundColor(sel ? .white : .white.opacity(0.4)).padding(.horizontal, 16).padding(.vertical, 6).background(sel ? Color.white.opacity(0.1) : Color.clear).cornerRadius(6) }.buttonStyle(.plain) }
+    var body: some View { Button(action: action) { Text(title).font(.system(size: 11, weight: sel ? .bold : .regular)).foregroundColor(sel ? .white : .white.opacity(0.4)).padding(.horizontal, 12).padding(.vertical, 6).background(sel ? Color.white.opacity(0.1) : Color.clear).cornerRadius(6) }.buttonStyle(.plain) }
 }
 
 struct StatusPanel: View {
@@ -215,16 +227,26 @@ struct StatusPanel: View {
         if monitor.currentStatus.active_agents.isEmpty { HStack { Image(systemName: "moon.zzz.fill").font(.caption).foregroundColor(.white.opacity(0.4)); Text("Idle").font(.system(size: 11)).foregroundColor(.white.opacity(0.5)) } }
         else { ForEach(monitor.currentStatus.active_agents, id: \.self) { a in HStack(spacing: 6) { Circle().fill(.green).frame(width: 6, height: 6); Text(a).font(.system(size: 12, weight: .medium, design: .monospaced)) } } }
         if !monitor.currentStatus.pipeline.isEmpty { Divider().opacity(0.3); Text("Pipeline: \(monitor.currentStatus.pipeline)").font(.system(size: 12)); ProgressView(value: monitor.currentStatus.progress).progressViewStyle(.linear).tint(.green) }
+        Spacer()
+        Divider().opacity(0.3)
+        Button(action: { NSApp.terminate(nil) }) { HStack { Image(systemName: "power").font(.caption).foregroundColor(.red); Text("Quit Agentbox").font(.system(size: 11)).foregroundColor(.red) } }.buttonStyle(.plain)
     }.padding(16) } }
 }
 
 struct WsPanel: View {
     @ObservedObject var monitor: StatusMonitor
     var body: some View { ScrollView { VStack(alignment: .leading, spacing: 10) {
-        VStack(spacing: 6) { Image(systemName: "folder.badge.plus").font(.system(size: 24)).foregroundColor(.white.opacity(0.3)); Text("Drag folder to notch above").font(.system(size: 11, weight: .medium)).foregroundColor(.white.opacity(0.4)) }
-        .frame(maxWidth: .infinity).padding(.vertical, 20).background(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.1), style: StrokeStyle(lineWidth: 2, dash: [6]))).padding(.horizontal, 16)
+        VStack(spacing: 6) { Image(systemName: "folder.badge.plus").font(.system(size: 24)).foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.3)); Text(monitor.isDragOver ? "Release to create workspace" : "Drag folder to notch above").font(.system(size: 11, weight: .medium)).foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.4)) }
+        .frame(maxWidth: .infinity).padding(.vertical, 20).background(RoundedRectangle(cornerRadius: 10).stroke(monitor.isDragOver ? Color.green : Color.white.opacity(0.1), style: StrokeStyle(lineWidth: 2, dash: [6]))).padding(.horizontal, 16)
         if monitor.workspaces.isEmpty { Text("No workspaces yet").font(.system(size: 11)).foregroundColor(.white.opacity(0.3)).frame(maxWidth: .infinity).padding(.top, 8) }
-        else { ForEach(monitor.workspaces) { ws in WsRow(ws: ws, monitor: monitor) }.padding(.horizontal, 16) }
+        else {
+            ForEach(monitor.workspaces) { ws in WsRow(ws: ws, monitor: monitor) }.padding(.horizontal, 16)
+            // Close all workspaces button
+            Button(action: { monitor.deleteAllWorkspaces() }) { HStack { Image(systemName: "xmark.bin").font(.caption).foregroundColor(.red.opacity(0.7)); Text("Close All Workspaces").font(.system(size: 10)).foregroundColor(.red.opacity(0.7)) }.frame(maxWidth: .infinity).padding(.vertical, 6).background(RoundedRectangle(cornerRadius: 6).fill(Color.red.opacity(0.1))) }.buttonStyle(.plain).padding(.horizontal, 16)
+        }
+        Spacer()
+        Divider().opacity(0.3)
+        Button(action: { NSApp.terminate(nil) }) { HStack { Image(systemName: "power").font(.caption).foregroundColor(.red); Text("Quit Agentbox").font(.system(size: 11)).foregroundColor(.red) } }.buttonStyle(.plain).padding(.horizontal, 16)
     }.padding(.top, 8) } }
 }
 
@@ -234,7 +256,7 @@ struct WsRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack { Image(systemName: "folder.fill").font(.caption).foregroundColor(.blue); Text(ws.name).font(.system(size: 13, weight: .semibold)); Spacer()
                 Text(ws.status.uppercased()).font(.system(size: 9, design: .monospaced)).foregroundColor(ws.status == "running" ? .yellow : .white.opacity(0.3))
-                Button(action: { monitor.deleteWorkspace(id: ws.id) }) { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundColor(.white.opacity(0.3)) }.buttonStyle(.plain)
+                Button(action: { monitor.deleteWorkspace(id: ws.id) }) { Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundColor(.red.opacity(0.6)) }.buttonStyle(.plain)
             }
             Text(ws.folder_path).font(.system(size: 9, design: .monospaced)).foregroundColor(.white.opacity(0.25)).lineLimit(1)
             HStack(spacing: 4) {
