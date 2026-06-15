@@ -1,0 +1,17 @@
+agent:
+  name: daemon-core
+  base_image: agentbox-base
+  description: System daemon for infrastructure lifecycle
+
+skills:
+  - process_control
+  - docker_lifecycle
+  - tmux_session_management
+
+policy:
+  max_steps: 20
+  require_diff: false
+  sandbox_only: false
+  timeout: 60
+  system_level: true
+  can_modify_runtime: true

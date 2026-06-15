@@ -1,0 +1,21 @@
+name: result_merge
+layer: orchestration
+
+capabilities:
+  - collect_outputs
+  - resolve_conflicts
+  - synthesize_summary
+  - quality_scoring
+
+constraints:
+  - Must handle conflicting outputs gracefully
+  - Must preserve attribution (which agent produced what)
+  - Must flag low-confidence results
+
+tools_allowed:
+  - state_read  - state_read  - state_read  - state_read  - state_read  - state_read  -confidenc  - state_read  - state_read  - state_read  - state_read  - state_read  - state_read  -confidenc  - state_read  - state_read  - state_read  - state_read  - state_read  - state_read  -confidenc  - state_read  - state_read  - state_read  - state_read  - state_read  - state_read  -confidenc  - state_read  - state_read  - state_read  - state_read  - state_read  - state_read  -confidenc  - state_read  - state_read  - state_read  - state_read  - state_read  - state_read  -confidenc  - state_read  - state_read  - state_
+
+output_format:
+  - pipeline_status_json
+  - step_results
+  - execution_log

@@ -56,7 +56,7 @@ class WorkflowEngine:
 
         return (
             f"{prompt}\n\n"
-            "Project agent instructions from AGENTS.md:\n"
+            "AGENTS.md System Contract (mandatory compliance):\n"
             "---\n"
             f"{agents_md.strip()}\n"
             "---"

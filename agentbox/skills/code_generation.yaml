@@ -1,0 +1,25 @@
+name: code_generation
+layer: coding
+
+capabilities:
+  - generate_code
+  - scaffold_project
+  - implement_feature
+  - write_tests
+
+constraints:
+  - Must analyze existing codebase before generating
+  - Must follow existing code style
+  - Must generate diff before applying changes
+
+tools_allowed:
+  - git
+  - grep
+  - ast_parser
+  - file_read
+  - file_write
+
+output_format:
+  - code_diff
+  - explanation
+  - test_results

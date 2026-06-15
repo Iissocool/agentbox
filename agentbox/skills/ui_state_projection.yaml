@@ -1,0 +1,28 @@
+name: ui_state_projection
+layer: ui
+
+capabilities:
+  - read_system_state
+  - read_agent_status
+  - read_pipeline_progress
+  - project_json_snapshot
+
+constraints:
+  - READ-ONLY: cannot modify any file or state
+  - Cannot execute docker mutation commands
+  - Cannot execute shell modification commands
+  - Cannot access sensitive host paths
+  - Output must always be valid JSON
+
+tools_allowed:
+  - state_read
+  - docker_inspect
+  - tmux_capture
+
+output_format:
+  - json_status_snapshot:
+      status: str
+      active_agents: list[str]
+      pipeline: str
+      progress: float
+      alerts: list[dict]

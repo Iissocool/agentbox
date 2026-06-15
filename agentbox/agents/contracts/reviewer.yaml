@@ -1,7 +1,7 @@
 agent:
   name: reviewer
   base_image: agentbox-codex
-  description: Review-focused agent that audits code quality and correctness
+  description: Review agent for code quality auditing
 
 skills:
   - code_refactor

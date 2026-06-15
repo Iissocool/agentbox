@@ -21,6 +21,8 @@ from ..sandbox import SandboxManager
 from ..state import register_window, unregister_session
 from ..tmux_mgr import TmuxManager
 from ..utils.commands import build_agent_command, build_docker_exec
+from ..skills import load_skill as _load_skill
+from ..agents.contracts import load_contract as _load_contract
 
 console = Console()
 
@@ -49,6 +51,25 @@ class AgentRunner:
         """Check if a tmux window exists in a session."""
         windows = self.tmux_mgr.list_windows(session_name)
         return any(w["name"] == window_name for w in windows)
+
+    def _get_skill_prompt_suffix(self, agent_id: str) -> str:
+        """Build a skill-aware prompt suffix for the agent based on its contract."""
+        contract = _load_contract(agent_id)
+        if not contract:
+            return ""
+        skills = contract.get("skills", [])
+        policy = contract.get("policy", {})
+        lines = ["\n--- AGENT CONTRACT ---"]
+        lines.append(f"Agent: {agent_id}")
+        lines.append(f"Allowed skills: {', '.join(skills)}")
+        if policy.get("require_diff"):
+            lines.append("IMPORTANT: You MUST generate a diff before modifying any file.")
+        if policy.get("sandbox_only"):
+            lines.append("All operations must remain within the Docker sandbox.")
+        if policy.get("read_only"):
+            lines.append("READ-ONLY MODE: You must NOT modify any file or execute mutations.")
+        lines.append("--- END CONTRACT ---\n")
+        return "\n".join(lines)
 
     def _window_process_alive(self, session_name: str, window_name: str) -> bool:
         """Check if the process in a tmux window is still running (not at shell prompt).

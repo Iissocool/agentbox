@@ -216,6 +216,29 @@ class Orchestrator:
 
     # ── Step Execution Internals ────────────────────────
 
+    @staticmethod
+    def _skill_pre_hook(step, agent_config: dict) -> dict | None:
+        """Resolve skills for a pipeline step and return skill context."""
+        from ..agents.contracts import load_contract
+        from ..skills import load_skill
+        contract = load_contract(step.agent)
+        if not contract:
+            return None
+        skills = contract.get("skills", [])
+        policy = contract.get("policy", {})
+        skill_details = []
+        for skill_name in skills:
+            skill = load_skill(skill_name)
+            if skill:
+                skill_details.append(skill)
+        return {
+            "contract": contract,
+            "skills": skill_details,
+            "policy": policy,
+            "max_steps": policy.get("max_steps", 10),
+            "require_diff": policy.get("require_diff", False),
+        }
+
     def _execute_step(
         self,
         step: PipelineStep,

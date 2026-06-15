@@ -1,0 +1,16 @@
+agent:
+  name: orchestrator-agent
+  base_image: agentbox-claude
+  description: Orchestration agent that coordinates multi-agent pipelines
+
+skills:
+  - multi_agent_split
+  - result_merge
+  - pipeline_execution
+
+policy:
+  max_steps: 10
+  require_diff: false
+  sandbox_only: true
+  timeout: 600
+  can_delegate: true

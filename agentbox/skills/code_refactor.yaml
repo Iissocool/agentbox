@@ -1,0 +1,23 @@
+name: code_refactor
+layer: coding
+
+capabilities:
+  - dependency_analysis
+  - safe_edit
+  - diff_generation
+  - pattern_replacement
+
+constraints:
+  - Must generate diff before any modification
+  - Must preserve existing behavior (refactor-only)
+  - Must run tests after refactoring
+  - Prohibited from modifying unrelated code
+
+tools_allowed:
+  - git
+  - grep
+  - ast_pars  - ast_pars  - ast_pars  - ast_pars  - astmat  - ast_pars  - ast_pars  - ast_pars  - ast_pars  - astmat  - ast_pars  - ast_pars  - ast_pars  - ast_pars  - astmat  - ast_pars  - ast_pars  - ast_pars  - ast_pars  - astmat  - ast_pars  - ast_pars  - ast_pars  - ast_pars  - astmat  - ast_pars  - ast_pars  - ast_pars  - ast_pars  - astmat  - ast_pars  - ast_pars  - ast_pars  - ast_pars  - astmat  - ast_pars  - ast_pars  - ast_pars  - ast_pars  - astmat  - ast_pars  - ast_pars  - ast_pars  - ast_pars  - astmat  - ast_pars  - ast_pars  - ast_pars  - ast_pars  _format:
+  - error_summary
+  - root_cause
+  - fix_diff
+  - verification_steps

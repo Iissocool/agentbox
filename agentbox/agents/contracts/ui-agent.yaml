@@ -1,0 +1,18 @@
+agent:
+  name: ui-agent
+  base_image: agentbox-base
+  description: Read-only UI agent for JSON state projection
+
+skills:
+  - ui_state_projection
+
+policy:
+  max_steps: 1
+  require_diff: false
+  sandbox_only: true
+  timeout: 10
+  read_only: true
+  no_docker_mutation: true
+  no_shell_modification: true
+  no_sensitive_paths: true
+  output_must_be_json: true

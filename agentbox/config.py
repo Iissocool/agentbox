@@ -204,3 +204,24 @@ def _deep_merge(base: dict, override: dict) -> dict:
         else:
             base[key] = value
     return base
+
+
+# ── Skills & Contracts ──────────────────────────────────
+
+
+def load_skills_registry() -> dict[str, dict]:
+    """Load all skill definitions into a name->skill registry."""
+    from .skills import load_all_skills
+    return {s["name"]: s for s in load_all_skills()}
+
+
+def load_contracts_registry() -> dict[str, dict]:
+    """Load all agent contracts into a name->contract registry."""
+    from .agents.contracts import load_all_contracts
+    result = {}
+    for c in load_all_contracts():
+        agent = c.get("agent", {})
+        name = agent.get("name", "")
+        if name:
+            result[name] = c
+    return result

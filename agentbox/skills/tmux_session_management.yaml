@@ -1,0 +1,23 @@
+name: tmux_session_management
+layer: system
+
+capabilities:
+  - create_session
+  - create_window
+  - create_pane
+  - attach_session
+  - capture_pane
+  - kill_session
+  - list_sessions
+
+constraints:
+  - Session names must follow ag-{project} convention
+  - Agent windows must use sb-{agent} prefix
+  - Must handle terminal state recovery on attach
+
+tools_allowed:
+  - tmux
+
+output_format:
+  - session_info_json
+  - pane_content

@@ -1,0 +1,14 @@
+agent:
+  name: architect
+  base_image: agentbox-claude
+  description: Design-focused agent that plans architecture and structures
+
+skills:
+  - code_generation
+  - multi_agent_split
+
+policy:
+  max_steps: 3
+  require_diff: false
+  sandbox_only: true
+  timeout: 180

@@ -1,0 +1,15 @@
+agent:
+  name: coder
+  base_image: agentbox-claude
+  description: Implementation-focused agent that writes and modifies code
+
+skills:
+  - code_generation
+  - code_refactor
+  - debugging
+
+policy:
+  max_steps: 5
+  require_diff: true
+  sandbox_only: true
+  timeout: 300

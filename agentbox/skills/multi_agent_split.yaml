@@ -1,0 +1,22 @@
+name: multi_agent_split
+layer: orchestration
+
+capabilities:
+  - task_decomposition
+  - agent_assignment
+  - dependency_resolution
+  - parallel_scheduling
+
+constraints:
+  - Must respect agent skill boundaries
+  - Must ensure no circular dependencies
+  - Must assign tasks only to agents with matching skills
+
+tools_allowed:
+  - state_read
+  - config_read
+
+output_format:
+  - task_graph
+  - agent_assignments
+  - dependency_map

@@ -1,0 +1,26 @@
+name: pipeline_execution
+layer: orchestration
+
+capabilities:
+  - sequential_execution
+  - parallel_execution
+  - context_passing
+  - error_recovery
+  - progress_tracking
+
+constraints:
+  - Must persist pipeline state to disk
+  - Must support resumption after interruption
+  - Must respect step timeouts
+  - Must capture output from each step
+
+tools_allowed:
+  - docker
+  - tmux
+  - state_read
+  - state_write
+
+output_format:
+  - pipeline_status_json
+  - step_results
+  - execution_log

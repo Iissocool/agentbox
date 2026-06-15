@@ -1,0 +1,23 @@
+name: process_control
+layer: system
+
+capabilities:
+  - start_agent
+  - stop_agent
+  - restart_agent
+  - health_check
+  - process_monitoring
+
+constraints:
+  - Must verify Docker availability before start
+  - Must check agent process alive before restart
+  - Must respect sandbox isolation boundaries
+
+tools_allowed:
+  - docker
+  - tmux
+  - subprocess
+
+output_format:
+  - status_json
+  - error_report

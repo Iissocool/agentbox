@@ -1,0 +1,27 @@
+name: debugging
+layer: coding
+
+capabilities:
+  - error_analysis
+  - stack_trace_reading
+  - log_inspection
+  - root_cause_identification
+  - fix_suggestion
+
+constraints:
+  - Must read error output before suggesting fixes
+  - Must verify fix does not introduce new issues
+  - Must explain root cause
+
+tools_allowed:
+  - git
+  - grep
+  - log_read
+  - subprocess
+  - file_read
+
+output_format:
+  - error_summary
+  - root_cause
+  - fix_diff
+  - verification_steps

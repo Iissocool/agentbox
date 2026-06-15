@@ -1,0 +1,54 @@
+name: docker_lifecycle
+layer: system
+
+capabilities:
+  - create_container
+  - start_container
+  - stop_container
+  - remove_container
+  - build_image
+  - commit_container
+
+constraints:
+  - Must use agentbox-base as parent image
+  - Must mount project to /workspace
+  - Must set resource limits (memory, cpu)
+  - Must label containers with agentbox metadata
+
+tools_allowed:
+  - docker
+
+output_format:
+  - container_info_json
+  - build_name: process_control
+layer: system
+
+capabilities:
+  - start_agent
+  - stop_agent
+  - restmelayer: system
+
+capabam
+capabilitieion  - start_agla  - stop_agentap  - restart_a-   - he_session
+  -  - process_mon  
+constraints:
+  - Musach  - Must ve-   - Must check agent process alive before resta
+
+  - Must respect sandbox isolation boundaries
+
+tro
+tools_allowed:
+  - docker
+  - tmux
+  - subpsb-  - docker
+  x
+  - tmux
+ha  - subrm
+output_formacov  - statttach
+
+  - error_red:
+ SKILL
+
+catutput_format:
+  - session_info_json
+  - pane_content
