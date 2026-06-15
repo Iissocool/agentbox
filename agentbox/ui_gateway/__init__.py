@@ -76,6 +76,50 @@ async def handle_events(request: web.Request) -> web.Response:
     return web.json_response({"events": events, "count": len(events)})
 
 
+async def handle_pipelines(request: web.Request) -> web.Response:
+    from ..orchestrator.engine import Orchestrator
+    runs = Orchestrator.list_pipeline_runs()
+    enriched = []
+    for run in runs[:10]:
+        detail = Orchestrator.get_pipeline_run(run.get("run_id", ""))
+        step_flow, context_keys = [], []
+        if detail:
+            for sid, res in detail.get("steps", {}).items():
+                step_flow.append({"step_id": sid, "status": res.get("status", "?"), "has_output": bool(res.get("output", ""))})
+            context_keys = list(detail.get("context_keys", []))
+        enriched.append({**run, "step_flow": step_flow, "context_keys": context_keys})
+    return web.json_response({"pipelines": enriched, "count": len(enriched)})
+
+
+async def handle_pipeline_detail(request: web.Request) -> web.Response:
+    from ..orchestrator.engine import Orchestrator
+    run_id = request.match_info.get("run_id", "")
+    data = Orchestrator.get_pipeline_run(run_id)
+    if not data:
+        return web.json_response({"error": "not found"}, status=404)
+    data["step_flow"] = [{"step_id": s, "status": r.get("status", "?"), "has_output": bool(r.get("output", ""))} for s, r in data.get("steps", {}).items()]
+    return web.json_response(data)
+
+
+async def handle_context(request: web.Request) -> web.Response:
+    from ..orchestrator.engine import Orchestrator
+    run_id = request.match_info.get("run_id", "")
+    data = Orchestrator.get_pipeline_run(run_id)
+    if not data:
+        return web.json_response({"error": "not found"}, status=404)
+    steps = data.get("steps", {})
+    return web.json_response({"run_id": run_id, "context_keys": data.get("context_keys", []), "step_outputs": {k: {"status": v.get("status"), "len": len(v.get("output", ""))} for k, v in steps.items()}})
+
+
+async def handle_agent_open(request: web.Request) -> web.Response:
+    body = await request.json()
+    agent_id = body.get("agent", "")
+    if not agent_id:
+        return web.json_response({"error": "agent required"}, status=400)
+    return web.json_response({"status": "ok", "agent": agent_id})
+
+
+
 async def handle_stream(request: web.Request) -> web.WebSocketResponse:
     """WS /stream — real-time event stream to Menu Bar App."""
     ws = web.WebSocketResponse()
@@ -161,6 +205,10 @@ def create_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/status", handle_status)
     app.router.add_get("/events", handle_events)
+    app.router.add_get("/pipelines", handle_pipelines)
+    app.router.add_get("/pipeline/{run_id}", handle_pipeline_detail)
+    app.router.add_get("/context/{run_id}", handle_context)
+    app.router.add_post("/agent/open", handle_agent_open)
     app.router.add_get("/stream", handle_stream)
     app.router.add_get("/pipeline", handle_pipeline)
     return app
