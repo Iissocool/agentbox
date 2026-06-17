@@ -92,6 +92,23 @@ final class StatusMonitor: ObservableObject {
         }.resume()
     }
 
+    func chooseFolderWithPanel() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a folder for Agentbox"
+        panel.message = "Select a project folder to create an Agentbox workspace."
+        panel.prompt = "Create Workspace"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            selectedTab = 1
+            isExpanded = true
+            createWorkspace(folderPath: url.path)
+        }
+    }
+
     func createWorkspace(folderPath: String) {
         lastDropMessage = "Creating workspace: \(URL(fileURLWithPath: folderPath).lastPathComponent)"
         guard let url = URL(string: "\(baseURL)/workspaces") else { return }
@@ -146,24 +163,36 @@ final class NotchDragCoordinator {
     let fileTypes: [NSPasteboard.PasteboardType] = [
         .fileURL,
         .URL,
+        .string,
         NSPasteboard.PasteboardType("public.file-url"),
         NSPasteboard.PasteboardType("NSFilenamesPboardType"),
+        NSPasteboard.PasteboardType("NSStringPboardType"),
+        NSPasteboard.PasteboardType("com.apple.finder.node"),
+        NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
+        NSPasteboard.PasteboardType("public.item"),
+        NSPasteboard.PasteboardType("public.content"),
+        NSPasteboard.PasteboardType("public.data"),
+        NSPasteboard.PasteboardType("public.url-name"),
+        NSPasteboard.PasteboardType("public.utf8-plain-text"),
     ]
 
     func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         logPasteboard(sender, phase: "entered")
-        guard !folderPaths(from: sender).isEmpty else { return [] }
+        let paths = folderPaths(from: sender)
         DispatchQueue.main.async {
             self.monitor.isDragOver = true
             self.monitor.isExpanded = true
             self.monitor.selectedTab = 1
-            self.monitor.lastDropMessage = "Release to create workspace"
+            self.monitor.lastDropMessage = paths.isEmpty ? "Release to inspect dropped item" : "Release to create workspace"
         }
+
+        // Always accept registered Finder/Desktop drags so performDragOperation gets a chance
+        // to inspect pasteboard items that only materialize paths on drop.
         return .copy
     }
 
     func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        return folderPaths(from: sender).isEmpty ? [] : .copy
+        return .copy
     }
 
     func draggingExited(_ sender: NSDraggingInfo?) {
@@ -175,14 +204,23 @@ final class NotchDragCoordinator {
     }
 
     func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        return !folderPaths(from: sender).isEmpty
+        return true
     }
 
     func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let paths = folderPaths(from: sender)
         logDrag("perform drop paths=\(paths)")
         DispatchQueue.main.async { self.monitor.isDragOver = false }
-        guard let first = paths.first else { return false }
+
+        guard let first = paths.first else {
+            DispatchQueue.main.async {
+                self.monitor.selectedTab = 1
+                self.monitor.isExpanded = true
+                self.monitor.lastDropMessage = "Drop did not contain a readable folder"
+            }
+            return false
+        }
+
         DispatchQueue.main.async {
             self.monitor.selectedTab = 1
             self.monitor.isExpanded = true
@@ -193,30 +231,83 @@ final class NotchDragCoordinator {
 
     private func folderPaths(from sender: NSDraggingInfo) -> [String] {
         let pasteboard = sender.draggingPasteboard
-        var results: [String] = []
+        var candidates: [String] = []
 
-        if let files = pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String] {
-            results.append(contentsOf: files)
-        }
+        func appendCandidate(_ raw: String) {
+            let pieces = raw
+                .components(separatedBy: .newlines)
+                .flatMap { $0.components(separatedBy: "\0") }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
 
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] {
-            results.append(contentsOf: urls.map(\.path))
-        }
-
-        for type in [NSPasteboard.PasteboardType.fileURL, NSPasteboard.PasteboardType("public.file-url"), NSPasteboard.PasteboardType.URL] {
-            if let value = pasteboard.string(forType: type) {
+            for value in pieces {
                 if let url = URL(string: value), url.isFileURL {
-                    results.append(url.path)
-                } else {
-                    results.append(value)
+                    candidates.append(url.path.removingPercentEncoding ?? url.path)
+                } else if value.hasPrefix("file://"),
+                          let decoded = value.removingPercentEncoding,
+                          let url = URL(string: decoded),
+                          url.isFileURL {
+                    candidates.append(url.path)
+                } else if value.hasPrefix("/") {
+                    candidates.append(value.removingPercentEncoding ?? value)
                 }
             }
         }
 
-        return Array(Set(results)).filter { path in
+        if let files = pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String] {
+            candidates.append(contentsOf: files)
+        }
+
+        if let files = pasteboard.propertyList(forType: .fileURL) as? [String] {
+            candidates.append(contentsOf: files)
+        }
+
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [NSURL] {
+            for url in urls {
+                if let path = url.filePathURL?.path ?? url.path {
+                    candidates.append(path)
+                }
+            }
+        }
+
+        for type in fileTypes {
+            if let value = pasteboard.string(forType: type) {
+                appendCandidate(value)
+            }
+
+            if let propertyList = pasteboard.propertyList(forType: type) {
+                if let string = propertyList as? String {
+                    appendCandidate(string)
+                } else if let strings = propertyList as? [String] {
+                    candidates.append(contentsOf: strings)
+                }
+            }
+        }
+
+        for item in pasteboard.pasteboardItems ?? [] {
+            for type in item.types {
+                if let value = item.string(forType: type) {
+                    appendCandidate(value)
+                }
+
+                if let data = item.data(forType: type) {
+                    if type == .fileURL || type.rawValue == "public.file-url" || type.rawValue == "com.apple.pasteboard.promised-file-url" {
+                        let url = NSURL(absoluteURLWithDataRepresentation: data, relativeTo: nil) as URL
+                        candidates.append(url.path)
+                    } else if let value = String(data: data, encoding: .utf8) {
+                        appendCandidate(value)
+                    }
+                }
+            }
+        }
+
+        let directories = Array(Set(candidates)).filter { path in
             var isDirectory: ObjCBool = false
             return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
         }
+
+        logDrag("folder candidates=\(candidates) directories=\(directories)")
+        return directories
     }
 
     private func logPasteboard(_ sender: NSDraggingInfo, phase: String) {
@@ -237,6 +328,45 @@ final class NotchDragCoordinator {
                 try? data.write(to: url)
             }
         }
+    }
+}
+
+final class DragAwarePanel: NSPanel {
+    private let coordinator: NotchDragCoordinator
+
+    init(contentRect: NSRect, coordinator: NotchDragCoordinator) {
+        self.coordinator = coordinator
+        super.init(
+            contentRect: contentRect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        registerForDraggedTypes(coordinator.fileTypes)
+        coordinator.logDrag("DragAwarePanel initialized; registered types: \(coordinator.fileTypes.map { $0.rawValue })")
+    }
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        coordinator.draggingEntered(sender)
+    }
+
+    func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        coordinator.draggingUpdated(sender)
+    }
+
+    func draggingExited(_ sender: NSDraggingInfo?) {
+        coordinator.draggingExited(sender)
+    }
+
+    func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        coordinator.prepareForDragOperation(sender)
+    }
+
+    func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        coordinator.performDragOperation(sender)
     }
 }
 
@@ -336,31 +466,81 @@ final class NotchDragHostView: NSView {
     }
 }
 
+final class NotchDropShieldView: NSView {
+    private let coordinator: NotchDragCoordinator
+
+    init(monitor: StatusMonitor) {
+        self.coordinator = NotchDragCoordinator(monitor: monitor)
+        super.init(frame: .zero)
+
+        wantsLayer = true
+        // A nearly transparent layer makes the AppKit view a real drag target while staying visually invisible.
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.001).cgColor
+        registerForDraggedTypes(coordinator.fileTypes)
+        coordinator.logDrag("Top drop shield initialized; registered types: \(coordinator.fileTypes.map { $0.rawValue })")
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // The shield intentionally owns the top-center notch hot area so Finder drag destinations can resolve to it.
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        DispatchQueue.main.async {
+            self.coordinator.monitor.isExpanded.toggle()
+        }
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        coordinator.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        coordinator.draggingUpdated(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        coordinator.draggingExited(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        coordinator.prepareForDragOperation(sender)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        coordinator.performDragOperation(sender)
+    }
+}
+
 // MARK: - Window manager
 
 final class NotchManager {
     static let shared = NotchManager()
     var floatingWindow: NSPanel?
+    var dropShieldWindow: NSPanel?
     let monitor = StatusMonitor()
 
     func createFloatingWindow() {
         guard let screen = NSScreen.main else { return }
 
+        let screenFrame = screen.frame
+
         let width: CGFloat = 380
         let height: CGFloat = 560
-        let visible = screen.visibleFrame
         let rect = NSRect(
-            x: visible.midX - width / 2,
-            y: visible.maxY - height + 8,
+            x: screenFrame.midX - width / 2,
+            y: screenFrame.maxY - height,
             width: width,
             height: height
         )
 
-        let window = NSPanel(
+        let window = DragAwarePanel(
             contentRect: rect,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+            coordinator: NotchDragCoordinator(monitor: monitor)
         )
 
         window.isOpaque = false
@@ -375,6 +555,40 @@ final class NotchManager {
         window.orderFrontRegardless()
 
         floatingWindow = window
+        createDropShieldWindow(on: screen)
+    }
+
+    private func createDropShieldWindow(on screen: NSScreen) {
+        let screenFrame = screen.frame
+
+        // This is the real top-center drop hot zone. It covers the physical notch/menu-bar area,
+        // not visibleFrame, because visibleFrame starts below the menu bar and misses desktop drags.
+        let shieldWidth: CGFloat = min(760, screenFrame.width)
+        let shieldHeight: CGFloat = 132
+        let rect = NSRect(
+            x: screenFrame.midX - shieldWidth / 2,
+            y: screenFrame.maxY - shieldHeight,
+            width: shieldWidth,
+            height: shieldHeight
+        )
+
+        let shield = DragAwarePanel(
+            contentRect: rect,
+            coordinator: NotchDragCoordinator(monitor: monitor)
+        )
+
+        shield.isOpaque = false
+        shield.backgroundColor = NSColor.black.withAlphaComponent(0.001)
+        shield.hasShadow = false
+        shield.level = .screenSaver
+        shield.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        shield.ignoresMouseEvents = false
+        shield.acceptsMouseMovedEvents = true
+        shield.isMovableByWindowBackground = false
+        shield.contentView = NotchDropShieldView(monitor: monitor)
+        shield.orderFrontRegardless()
+
+        dropShieldWindow = shield
     }
 }
 
@@ -683,7 +897,7 @@ struct DropZone: View {
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.82))
 
-            Text("Finder/Desktop folder → notch area")
+            Text("Finder/Desktop folder → Agentbox, or click to choose")
                 .font(.system(size: 10, weight: .medium, design: .rounded))
                 .foregroundColor(.white.opacity(0.36))
         }
@@ -701,6 +915,10 @@ struct DropZone: View {
                 )
         )
         .shadow(color: monitor.isDragOver ? .green.opacity(0.25) : .clear, radius: 18)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            monitor.chooseFolderWithPanel()
+        }
         .animation(.spring(response: 0.24, dampingFraction: 0.76), value: monitor.isDragOver)
     }
 }
