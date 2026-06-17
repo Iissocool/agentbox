@@ -49,6 +49,37 @@ final class StatusMonitor: ObservableObject {
     private var timer: Timer?
     private let baseURL = "http://localhost:18733"
 
+    // Local fallback when backend is not running
+    private var localWorkspacesFile: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".agentbox").appendingPathComponent("workspaces.json")
+    }
+    private let localAvailableAgents: [AgentOption] = [
+        AgentOption(id: "coder", name: "Coder"),
+        AgentOption(id: "architect", name: "Architect"),
+        AgentOption(id: "reviewer", name: "Reviewer"),
+        AgentOption(id: "codex", name: "Codex"),
+        AgentOption(id: "claude", name: "Claude"),
+        AgentOption(id: "aider", name: "Aider"),
+    ]
+    private let localPipelineTemplates: [String: PipelineTemplate] = [
+        "single-agent": PipelineTemplate(name: "Single Agent", desc: "One agent, direct task", steps: 1),
+        "dev-pipeline": PipelineTemplate(name: "Dev Pipeline", desc: "Plan → Code → Review", steps: 3),
+        "research-pipeline": PipelineTemplate(name: "Research Pipeline", desc: "Research → Summarize → Critique", steps: 3),
+        "compare-pipeline": PipelineTemplate(name: "Compare Pipeline", desc: "Parallel agents → Synthesize", steps: 3),
+    ]
+
+    private func loadLocalWorkspaces() -> [WorkspaceItem] {
+        guard let data = try? Data(contentsOf: localWorkspacesFile) else { return [] }
+        return (try? JSONDecoder().decode([WorkspaceItem].self, from: data)) ?? []
+    }
+
+    private func saveLocalWorkspaces(_ items: [WorkspaceItem]) {
+        try? FileManager.default.createDirectory(at: localWorkspacesFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(items) {
+            try? data.write(to: localWorkspacesFile)
+        }
+    }
+
     struct SysStatus: Codable {
         var status: String = "idle"
         var active_agents: [String] = []
@@ -81,15 +112,42 @@ final class StatusMonitor: ObservableObject {
     }
 
     func fetchWorkspaces() {
-        guard let url = URL(string: "\(baseURL)/workspaces") else { return }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let response = try? JSONDecoder().decode(WorkspaceListResponse.self, from: data) else { return }
+        guard let url = URL(string: "\(baseURL)/workspaces") else {
+            loadLocalWorkspacesIntoUI()
+            return
+        }
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let self,
+                  let data,
+                  error == nil,
+                  let response = try? JSONDecoder().decode(WorkspaceListResponse.self, from: data) else {
+                // Backend not available — use local fallback
+                DispatchQueue.main.async {
+                    self?.loadLocalWorkspacesIntoUI()
+                }
+                return
+            }
             DispatchQueue.main.async {
-                self?.workspaces = response.workspaces
-                self?.availableAgents = response.available_agents
-                self?.pipelineTemplates = response.pipeline_templates
+                self.workspaces = response.workspaces
+                if !response.available_agents.isEmpty {
+                    self.availableAgents = response.available_agents
+                } else {
+                    self.availableAgents = self.localAvailableAgents
+                }
+                if !response.pipeline_templates.isEmpty {
+                    self.pipelineTemplates = response.pipeline_templates
+                } else {
+                    self.pipelineTemplates = self.localPipelineTemplates
+                }
             }
         }.resume()
+    }
+
+    private func loadLocalWorkspacesIntoUI() {
+        let local = loadLocalWorkspaces()
+        workspaces = local
+        availableAgents = localAvailableAgents
+        pipelineTemplates = localPipelineTemplates
     }
 
     func chooseFolderWithPanel() {
@@ -113,12 +171,31 @@ final class StatusMonitor: ObservableObject {
         let folderName = URL(fileURLWithPath: folderPath).lastPathComponent
         lastDropMessage = "正在创建工作区: \(folderName)"
         isCreating = true
-        guard let url = URL(string: "\(baseURL)/workspaces") else { return }
+
+        // Validate folder exists locally first
+        guard FileManager.default.fileExists(atPath: folderPath) else {
+            isCreating = false
+            lastDropMessage = "文件夹不存在: \(folderName)"
+            logAction("createWorkspace: folder not found \(folderPath)")
+            return
+        }
+
+        // Create context file in the folder (like the backend does)
+        let contextFile = URL(fileURLWithPath: folderPath).appendingPathComponent(".agentbox_context.md")
+        if !FileManager.default.fileExists(atPath: contextFile.path) {
+            let header = "# Agentbox Shared Context — \(folderName)\n\n"
+            try? header.write(to: contextFile, atomically: true, encoding: .utf8)
+        }
+
+        guard let url = URL(string: "\(baseURL)/workspaces") else {
+            createLocalWorkspace(folderPath: folderPath, folderName: folderName)
+            return
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
+        request.timeoutInterval = 5
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "folder_path": folderPath,
             "agents": ["coder"],
@@ -129,29 +206,72 @@ final class StatusMonitor: ObservableObject {
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
-                self?.isCreating = false
+                guard let self else { return }
+
+                if let error = error as? URLError, error.code == .cannotConnectToHost || error.code == .cannotFindHost || error.code == .timedOut {
+                    // Backend not running — create locally
+                    self.createLocalWorkspace(folderPath: folderPath, folderName: folderName)
+                    return
+                }
+
+                self.isCreating = false
+
                 if let error {
-                    self?.lastDropMessage = "错误: \(error.localizedDescription)"
-                    self?.logAction("createWorkspace error: \(error)")
+                    self.lastDropMessage = "错误: \(error.localizedDescription)"
+                    self.logAction("createWorkspace error: \(error)")
                 } else if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
                     let body = String(data: data ?? Data(), encoding: .utf8) ?? ""
-                    self?.lastDropMessage = "服务端错误 (\(http.statusCode))"
-                    self?.logAction("createWorkspace http \(http.statusCode): \(body)")
+                    self.lastDropMessage = "服务端错误 (\(http.statusCode))"
+                    self.logAction("createWorkspace http \(http.statusCode): \(body)")
                 } else {
-                    self?.lastDropMessage = "✅ 工作区已创建: \(folderName)"
-                    self?.logAction("createWorkspace success")
+                    self.lastDropMessage = "✅ 工作区已创建: \(folderName)"
+                    self.logAction("createWorkspace success (backend)")
                 }
-                self?.selectedTab = 1
-                self?.isExpanded = true
-                self?.fetchWorkspaces()
+                self.selectedTab = 1
+                self.isExpanded = true
+                self.fetchWorkspaces()
             }
         }.resume()
     }
 
+    private func createLocalWorkspace(folderPath: String, folderName: String) {
+        let wsId = "ws-\(UUID().uuidString.prefix(8))"
+        let formatter = ISO8601DateFormatter()
+        let workspace = WorkspaceItem(
+            id: wsId,
+            name: folderName,
+            folder_path: folderPath,
+            agents: ["coder"],
+            pipeline: "single-agent",
+            status: "idle",
+            created_at: formatter.string(from: Date())
+        )
+
+        var local = loadLocalWorkspaces()
+        local.append(workspace)
+        saveLocalWorkspaces(local)
+
+        isCreating = false
+        lastDropMessage = "✅ 工作区已创建: \(folderName)（本地）"
+        selectedTab = 1
+        isExpanded = true
+        logAction("createWorkspace success (local fallback) id=\(wsId)")
+        loadLocalWorkspacesIntoUI()
+    }
+
     func deleteWorkspace(id: String) {
-        guard let url = URL(string: "\(baseURL)/workspaces/\(id)") else { return }
+        // Optimistic local delete first
+        var local = loadLocalWorkspaces()
+        local.removeAll { $0.id == id }
+        saveLocalWorkspaces(local)
+
+        guard let url = URL(string: "\(baseURL)/workspaces/\(id)") else {
+            loadLocalWorkspacesIntoUI()
+            return
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
+        request.timeoutInterval = 3
         URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
             DispatchQueue.main.async { self?.fetchWorkspaces() }
         }.resume()
