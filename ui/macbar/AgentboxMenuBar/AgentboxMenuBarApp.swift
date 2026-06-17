@@ -527,13 +527,15 @@ final class NotchManager {
     func createFloatingWindow() {
         guard let screen = NSScreen.main else { return }
 
-        let screenFrame = screen.frame
+        // Keep the visible SwiftUI notch below the macOS menu bar/notch.
+        // The transparent Drop Shield still covers the physical top area for drag targeting.
+        let visibleFrame = screen.visibleFrame
 
         let width: CGFloat = 380
         let height: CGFloat = 560
         let rect = NSRect(
-            x: screenFrame.midX - width / 2,
-            y: screenFrame.maxY - height,
+            x: visibleFrame.midX - width / 2,
+            y: visibleFrame.maxY - height + 8,
             width: width,
             height: height
         )
@@ -546,16 +548,21 @@ final class NotchManager {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
-        window.level = .screenSaver
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)) + 2)
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         window.ignoresMouseEvents = false
         window.acceptsMouseMovedEvents = true
         window.isMovableByWindowBackground = false
         window.contentView = NotchDragHostView(monitor: monitor)
-        window.orderFrontRegardless()
 
         floatingWindow = window
         createDropShieldWindow(on: screen)
+
+        // Order the visible UI last so the transparent shield never visually hides it.
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+
+        NotchDragCoordinator(monitor: monitor).logDrag("Visible notch window shown frame=\(rect)")
     }
 
     private func createDropShieldWindow(on screen: NSScreen) {
@@ -580,7 +587,7 @@ final class NotchManager {
         shield.isOpaque = false
         shield.backgroundColor = NSColor.black.withAlphaComponent(0.001)
         shield.hasShadow = false
-        shield.level = .screenSaver
+        shield.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)) + 1)
         shield.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         shield.ignoresMouseEvents = false
         shield.acceptsMouseMovedEvents = true
