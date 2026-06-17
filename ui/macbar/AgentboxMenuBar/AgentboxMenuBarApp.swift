@@ -1,4 +1,4 @@
-// AgentboxNotch — AppKit drag host + NotchDrop-like glass UI
+// Agentbox — Clean single-window notch app with folder drag-drop
 import SwiftUI
 import Combine
 import AppKit
@@ -40,11 +40,11 @@ final class StatusMonitor: ObservableObject {
     @Published var availableAgents: [AgentOption] = []
     @Published var pipelineTemplates: [String: PipelineTemplate] = [:]
 
-    // UI state is centralized so AppKit drag callbacks can open/switch the SwiftUI panel.
     @Published var isDragOver = false
     @Published var isExpanded = false
     @Published var selectedTab = 1
-    @Published var lastDropMessage = "Drag a folder onto the notch"
+    @Published var lastDropMessage = "拖拽文件夹到此处"
+    @Published var isCreating = false
 
     private var timer: Timer?
     private let baseURL = "http://localhost:18733"
@@ -94,9 +94,9 @@ final class StatusMonitor: ObservableObject {
 
     func chooseFolderWithPanel() {
         let panel = NSOpenPanel()
-        panel.title = "Choose a folder for Agentbox"
-        panel.message = "Select a project folder to create an Agentbox workspace."
-        panel.prompt = "Create Workspace"
+        panel.title = "选择项目文件夹"
+        panel.message = "选择一个文件夹来创建 Agentbox 工作区"
+        panel.prompt = "创建工作区"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
@@ -110,24 +110,36 @@ final class StatusMonitor: ObservableObject {
     }
 
     func createWorkspace(folderPath: String) {
-        lastDropMessage = "Creating workspace: \(URL(fileURLWithPath: folderPath).lastPathComponent)"
+        let folderName = URL(fileURLWithPath: folderPath).lastPathComponent
+        lastDropMessage = "正在创建工作区: \(folderName)"
+        isCreating = true
         guard let url = URL(string: "\(baseURL)/workspaces") else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "folder_path": folderPath,
             "agents": ["coder"],
             "pipeline": "single-agent",
         ])
 
-        URLSession.shared.dataTask(with: request) { [weak self] _, _, error in
+        logAction("createWorkspace path=\(folderPath)")
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
+                self?.isCreating = false
                 if let error {
-                    self?.lastDropMessage = "Gateway error: \(error.localizedDescription)"
+                    self?.lastDropMessage = "错误: \(error.localizedDescription)"
+                    self?.logAction("createWorkspace error: \(error)")
+                } else if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+                    let body = String(data: data ?? Data(), encoding: .utf8) ?? ""
+                    self?.lastDropMessage = "服务端错误 (\(http.statusCode))"
+                    self?.logAction("createWorkspace http \(http.statusCode): \(body)")
                 } else {
-                    self?.lastDropMessage = "Workspace created"
+                    self?.lastDropMessage = "✅ 工作区已创建: \(folderName)"
+                    self?.logAction("createWorkspace success")
                 }
                 self?.selectedTab = 1
                 self?.isExpanded = true
@@ -149,176 +161,11 @@ final class StatusMonitor: ObservableObject {
         let ids = workspaces.map(\.id)
         for id in ids { deleteWorkspace(id: id) }
     }
-}
 
-// MARK: - AppKit drag host
-
-final class NotchDragCoordinator {
-    let monitor: StatusMonitor
-
-    init(monitor: StatusMonitor) {
-        self.monitor = monitor
-    }
-
-    let fileTypes: [NSPasteboard.PasteboardType] = [
-        .fileURL,
-        .URL,
-        .string,
-        NSPasteboard.PasteboardType("public.file-url"),
-        NSPasteboard.PasteboardType("NSFilenamesPboardType"),
-        NSPasteboard.PasteboardType("NSStringPboardType"),
-        NSPasteboard.PasteboardType("com.apple.finder.node"),
-        NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
-        NSPasteboard.PasteboardType("public.item"),
-        NSPasteboard.PasteboardType("public.content"),
-        NSPasteboard.PasteboardType("public.data"),
-        NSPasteboard.PasteboardType("public.url-name"),
-        NSPasteboard.PasteboardType("public.utf8-plain-text"),
-    ]
-
-    func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        logPasteboard(sender, phase: "entered")
-        let paths = folderPaths(from: sender)
-        DispatchQueue.main.async {
-            self.monitor.isDragOver = true
-            self.monitor.isExpanded = true
-            self.monitor.selectedTab = 1
-            self.monitor.lastDropMessage = paths.isEmpty ? "Release to inspect dropped item" : "Release to create workspace"
-        }
-
-        // Always accept registered Finder/Desktop drags so performDragOperation gets a chance
-        // to inspect pasteboard items that only materialize paths on drop.
-        return .copy
-    }
-
-    func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        return .copy
-    }
-
-    func draggingExited(_ sender: NSDraggingInfo?) {
-        DispatchQueue.main.async {
-            self.monitor.isDragOver = false
-            self.monitor.lastDropMessage = "Drag a folder onto the notch"
-        }
-        logDrag("dragging exited")
-    }
-
-    func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        return true
-    }
-
-    func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        let paths = folderPaths(from: sender)
-        logDrag("perform drop paths=\(paths)")
-        DispatchQueue.main.async { self.monitor.isDragOver = false }
-
-        guard let first = paths.first else {
-            DispatchQueue.main.async {
-                self.monitor.selectedTab = 1
-                self.monitor.isExpanded = true
-                self.monitor.lastDropMessage = "Drop did not contain a readable folder"
-            }
-            return false
-        }
-
-        DispatchQueue.main.async {
-            self.monitor.selectedTab = 1
-            self.monitor.isExpanded = true
-            self.monitor.createWorkspace(folderPath: first)
-        }
-        return true
-    }
-
-    private func folderPaths(from sender: NSDraggingInfo) -> [String] {
-        let pasteboard = sender.draggingPasteboard
-        var candidates: [String] = []
-
-        func appendCandidate(_ raw: String) {
-            let pieces = raw
-                .components(separatedBy: .newlines)
-                .flatMap { $0.components(separatedBy: "\0") }
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-
-            for value in pieces {
-                if let url = URL(string: value), url.isFileURL {
-                    candidates.append(url.path.removingPercentEncoding ?? url.path)
-                } else if value.hasPrefix("file://"),
-                          let decoded = value.removingPercentEncoding,
-                          let url = URL(string: decoded),
-                          url.isFileURL {
-                    candidates.append(url.path)
-                } else if value.hasPrefix("/") {
-                    candidates.append(value.removingPercentEncoding ?? value)
-                }
-            }
-        }
-
-        if let files = pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String] {
-            candidates.append(contentsOf: files)
-        }
-
-        if let files = pasteboard.propertyList(forType: .fileURL) as? [String] {
-            candidates.append(contentsOf: files)
-        }
-
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [NSURL] {
-            for url in urls {
-                if let path = url.filePathURL?.path ?? url.path {
-                    candidates.append(path)
-                }
-            }
-        }
-
-        for type in fileTypes {
-            if let value = pasteboard.string(forType: type) {
-                appendCandidate(value)
-            }
-
-            if let propertyList = pasteboard.propertyList(forType: type) {
-                if let string = propertyList as? String {
-                    appendCandidate(string)
-                } else if let strings = propertyList as? [String] {
-                    candidates.append(contentsOf: strings)
-                }
-            }
-        }
-
-        for item in pasteboard.pasteboardItems ?? [] {
-            for type in item.types {
-                if let value = item.string(forType: type) {
-                    appendCandidate(value)
-                }
-
-                if let data = item.data(forType: type) {
-                    if type == .fileURL || type.rawValue == "public.file-url" || type.rawValue == "com.apple.pasteboard.promised-file-url" {
-                        let url = NSURL(absoluteURLWithDataRepresentation: data, relativeTo: nil) as URL
-                        candidates.append(url.path)
-                    } else if let value = String(data: data, encoding: .utf8) {
-                        appendCandidate(value)
-                    }
-                }
-            }
-        }
-
-        let directories = Array(Set(candidates)).filter { path in
-            var isDirectory: ObjCBool = false
-            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
-        }
-
-        logDrag("folder candidates=\(candidates) directories=\(directories)")
-        return directories
-    }
-
-    private func logPasteboard(_ sender: NSDraggingInfo, phase: String) {
-        let types = sender.draggingPasteboard.types?.map(\.rawValue) ?? []
-        logDrag("\(phase) pasteboard types=\(types)")
-    }
-
-    func logDrag(_ message: String) {
+    func logAction(_ message: String) {
         let line = "[\(Date())] \(message)\n"
+        let url = URL(fileURLWithPath: "/tmp/agentbox_notch_drag.log")
         if let data = line.data(using: .utf8) {
-            let url = URL(fileURLWithPath: "/tmp/agentbox_notch_drag.log")
             if FileManager.default.fileExists(atPath: url.path),
                let handle = try? FileHandle(forWritingTo: url) {
                 handle.seekToEndOfFile()
@@ -331,56 +178,74 @@ final class NotchDragCoordinator {
     }
 }
 
-final class DragAwarePanel: NSPanel {
-    private let coordinator: NotchDragCoordinator
+// MARK: - Drag Coordinator
 
-    init(contentRect: NSRect, coordinator: NotchDragCoordinator) {
-        self.coordinator = coordinator
-        super.init(
-            contentRect: contentRect,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        registerForDraggedTypes(coordinator.fileTypes)
-        coordinator.logDrag("DragAwarePanel initialized; registered types: \(coordinator.fileTypes.map { $0.rawValue })")
+final class NotchDragCoordinator: NSObject {
+    let monitor: StatusMonitor
+
+    init(monitor: StatusMonitor) {
+        self.monitor = monitor
     }
 
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    static let dragTypes: [NSPasteboard.PasteboardType] = [
+        .fileURL,
+        NSPasteboard.PasteboardType("NSFilenamesPboardType"),
+        NSPasteboard.PasteboardType("public.file-url"),
+    ]
 
-    func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        coordinator.draggingEntered(sender)
-    }
+    func extractFolderPaths(_ pasteboard: NSPasteboard) -> [String] {
+        var candidates: [String] = []
 
-    func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        coordinator.draggingUpdated(sender)
-    }
+        // NSFilenamesPboardType (legacy but works for Finder)
+        if let files = pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String] {
+            candidates.append(contentsOf: files)
+        }
 
-    func draggingExited(_ sender: NSDraggingInfo?) {
-        coordinator.draggingExited(sender)
-    }
+        // Modern: readObjects
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [NSURL] {
+            for url in urls {
+                if let path = url.path {
+                    candidates.append(path)
+                }
+            }
+        }
 
-    func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        coordinator.prepareForDragOperation(sender)
-    }
+        // Fallback: string forType
+        for type in Self.dragTypes {
+            if let value = pasteboard.string(forType: type) {
+                if let url = URL(string: value), url.isFileURL {
+                    candidates.append(url.path)
+                } else if value.hasPrefix("/") {
+                    candidates.append(value)
+                }
+            }
+        }
 
-    func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        coordinator.performDragOperation(sender)
+        // Filter to directories only
+        let directories = Array(Set(candidates)).filter { path in
+            var isDirectory: ObjCBool = false
+            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+
+        monitor.logAction("drag extract: candidates=\(candidates.count) dirs=\(directories)")
+        return directories
     }
 }
 
-final class DragAwareHostingView: NSHostingView<NotchFloatingView> {
+// MARK: - Drag-receiving hosting view
+
+final class DragReceivingHostingView: NSHostingView<AnyView> {
     private let coordinator: NotchDragCoordinator
 
-    init(rootView: NotchFloatingView, coordinator: NotchDragCoordinator) {
+    init(rootView: AnyView, coordinator: NotchDragCoordinator) {
         self.coordinator = coordinator
         super.init(rootView: rootView)
-        registerForDraggedTypes(coordinator.fileTypes)
+        registerForDraggedTypes(NotchDragCoordinator.dragTypes)
+        coordinator.monitor.logAction("DragReceivingView initialized; registered types: \(NotchDragCoordinator.dragTypes.map { $0.rawValue })")
     }
 
     @available(*, unavailable)
-    required init(rootView: NotchFloatingView) {
+    required init(rootView: AnyView) {
         fatalError("Use init(rootView:coordinator:)")
     }
 
@@ -389,229 +254,134 @@ final class DragAwareHostingView: NSHostingView<NotchFloatingView> {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        coordinator.draggingEntered(sender)
-    }
-
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        coordinator.draggingUpdated(sender)
-    }
-
-    override func draggingExited(_ sender: NSDraggingInfo?) {
-        coordinator.draggingExited(sender)
-    }
-
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        coordinator.prepareForDragOperation(sender)
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        coordinator.performDragOperation(sender)
-    }
-}
-
-final class NotchDragHostView: NSView {
-    private let coordinator: NotchDragCoordinator
-    private let hostingView: DragAwareHostingView
-
-    init(monitor: StatusMonitor) {
-        self.coordinator = NotchDragCoordinator(monitor: monitor)
-        self.hostingView = DragAwareHostingView(rootView: NotchFloatingView(monitor: monitor), coordinator: coordinator)
-        super.init(frame: .zero)
-
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-
-        registerForDraggedTypes(coordinator.fileTypes)
-
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-        addSubview(hostingView)
-
-        NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hostingView.topAnchor.constraint(equalTo: topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-
-        coordinator.logDrag("Drag host initialized on container + hosting view; registered types: \(coordinator.fileTypes.map { $0.rawValue })")
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        // Keep SwiftUI interactive while this container still receives dragging callbacks.
-        return super.hitTest(point)
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        coordinator.draggingEntered(sender)
-    }
-
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        coordinator.draggingUpdated(sender)
-    }
-
-    override func draggingExited(_ sender: NSDraggingInfo?) {
-        coordinator.draggingExited(sender)
-    }
-
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        coordinator.prepareForDragOperation(sender)
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        coordinator.performDragOperation(sender)
-    }
-}
-
-final class NotchDropShieldView: NSView {
-    private let coordinator: NotchDragCoordinator
-
-    init(monitor: StatusMonitor) {
-        self.coordinator = NotchDragCoordinator(monitor: monitor)
-        super.init(frame: .zero)
-
-        wantsLayer = true
-        // A nearly transparent layer makes the AppKit view a real drag target while staying visually invisible.
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.001).cgColor
-        registerForDraggedTypes(coordinator.fileTypes)
-        coordinator.logDrag("Top drop shield initialized; registered types: \(coordinator.fileTypes.map { $0.rawValue })")
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        // The shield intentionally owns the top-center notch hot area so Finder drag destinations can resolve to it.
-        return self
-    }
-
-    override func mouseDown(with event: NSEvent) {
+        let paths = coordinator.extractFolderPaths(sender.draggingPasteboard)
+        coordinator.monitor.logAction("draggingEntered paths=\(paths)")
         DispatchQueue.main.async {
-            self.coordinator.monitor.isExpanded.toggle()
+            self.coordinator.monitor.isDragOver = true
+            self.coordinator.monitor.isExpanded = true
+            self.coordinator.monitor.selectedTab = 1
+            self.coordinator.monitor.lastDropMessage = paths.isEmpty ? "释放以检查拖入项" : "释放以创建工作区"
         }
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        coordinator.draggingEntered(sender)
+        return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        coordinator.draggingUpdated(sender)
+        return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
-        coordinator.draggingExited(sender)
+        DispatchQueue.main.async {
+            self.coordinator.monitor.isDragOver = false
+            self.coordinator.monitor.lastDropMessage = "拖拽文件夹到此处"
+        }
+        coordinator.monitor.logAction("draggingExited")
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        coordinator.prepareForDragOperation(sender)
+        return true
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        coordinator.performDragOperation(sender)
+        let paths = coordinator.extractFolderPaths(sender.draggingPasteboard)
+        coordinator.monitor.logAction("performDragOperation paths=\(paths)")
+
+        DispatchQueue.main.async {
+            self.coordinator.monitor.isDragOver = false
+        }
+
+        guard let first = paths.first else {
+            DispatchQueue.main.async {
+                self.coordinator.monitor.isExpanded = true
+                self.coordinator.monitor.selectedTab = 1
+                self.coordinator.monitor.lastDropMessage = "拖入项不包含可读的文件夹"
+            }
+            return false
+        }
+
+        DispatchQueue.main.async {
+            self.coordinator.monitor.isExpanded = true
+            self.coordinator.monitor.selectedTab = 1
+            self.coordinator.monitor.createWorkspace(folderPath: first)
+        }
+        return true
     }
 }
 
-// MARK: - Window manager
+// MARK: - Visible Panel (can become key)
+
+final class VisiblePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+// MARK: - Window Manager
 
 final class NotchManager {
     static let shared = NotchManager()
-    var floatingWindow: NSPanel?
-    var dropShieldWindow: NSPanel?
+    var window: NSPanel?
     let monitor = StatusMonitor()
 
-    func createFloatingWindow() {
-        guard let screen = NSScreen.main else { return }
+    func createWindow() {
+        guard let screen = NSScreen.main else {
+            monitor.logAction("ERROR: NSScreen.main is nil")
+            return
+        }
 
-        // Keep the visible SwiftUI notch below the macOS menu bar/notch.
-        // The transparent Drop Shield still covers the physical top area for drag targeting.
         let visibleFrame = screen.visibleFrame
-
         let width: CGFloat = 380
         let height: CGFloat = 560
+
         let rect = NSRect(
             x: visibleFrame.midX - width / 2,
-            y: visibleFrame.maxY - height + 8,
+            y: visibleFrame.maxY - height,
             width: width,
             height: height
         )
 
-        let window = DragAwarePanel(
+        let panel = VisiblePanel(
             contentRect: rect,
-            coordinator: NotchDragCoordinator(monitor: monitor)
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
         )
 
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.hasShadow = false
-        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)) + 2)
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        window.ignoresMouseEvents = false
-        window.acceptsMouseMovedEvents = true
-        window.isMovableByWindowBackground = false
-        window.contentView = NotchDragHostView(monitor: monitor)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.ignoresMouseEvents = false
+        panel.acceptsMouseMovedEvents = true
+        panel.isMovableByWindowBackground = false
+        panel.hidesOnDeactivate = false
 
-        floatingWindow = window
-        createDropShieldWindow(on: screen)
+        let coordinator = NotchDragCoordinator(monitor: monitor)
+        let rootView = AnyView(NotchContentView(monitor: monitor))
+        let hostingView = DragReceivingHostingView(rootView: rootView, coordinator: coordinator)
+        panel.contentView = hostingView
 
-        // Order the visible UI last so the transparent shield never visually hides it.
-        window.orderFrontRegardless()
-        window.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
 
-        NotchDragCoordinator(monitor: monitor).logDrag("Visible notch window shown frame=\(rect)")
-    }
-
-    private func createDropShieldWindow(on screen: NSScreen) {
-        let screenFrame = screen.frame
-
-        // This is the real top-center drop hot zone. It covers the physical notch/menu-bar area,
-        // not visibleFrame, because visibleFrame starts below the menu bar and misses desktop drags.
-        let shieldWidth: CGFloat = min(760, screenFrame.width)
-        let shieldHeight: CGFloat = 132
-        let rect = NSRect(
-            x: screenFrame.midX - shieldWidth / 2,
-            y: screenFrame.maxY - shieldHeight,
-            width: shieldWidth,
-            height: shieldHeight
-        )
-
-        let shield = DragAwarePanel(
-            contentRect: rect,
-            coordinator: NotchDragCoordinator(monitor: monitor)
-        )
-
-        shield.isOpaque = false
-        shield.backgroundColor = NSColor.black.withAlphaComponent(0.001)
-        shield.hasShadow = false
-        shield.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)) + 1)
-        shield.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        shield.ignoresMouseEvents = false
-        shield.acceptsMouseMovedEvents = true
-        shield.isMovableByWindowBackground = false
-        shield.contentView = NotchDropShieldView(monitor: monitor)
-        shield.orderFrontRegardless()
-
-        dropShieldWindow = shield
+        window = panel
+        monitor.logAction("Window created frame=\(rect) level=\(panel.level.rawValue)")
     }
 }
 
 // MARK: - SwiftUI UI
 
-struct NotchFloatingView: View {
+struct NotchContentView: View {
     @ObservedObject var monitor: StatusMonitor
 
     var body: some View {
         VStack(spacing: 0) {
             NotchCapsule(monitor: monitor)
+                .padding(.top, 2)
 
             if monitor.isExpanded {
-                NotchPanel(monitor: monitor)
+                NotchPanelContent(monitor: monitor)
                     .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.98, anchor: .top)),
+                        insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.96, anchor: .top)),
                         removal: .move(edge: .top).combined(with: .opacity)
                     ))
             }
@@ -619,14 +389,18 @@ struct NotchFloatingView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.top, 2)
-        .background(MouseExitView {
-            if monitor.isExpanded && !monitor.isDragOver {
-                withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
-                    monitor.isExpanded = false
+        .background(
+            // Invisible mouse-exit detector
+            Color.clear
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    if !hovering && monitor.isExpanded && !monitor.isDragOver {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                            monitor.isExpanded = false
+                        }
+                    }
                 }
-            }
-        })
+        )
         .onChange(of: monitor.isDragOver) { _, dragging in
             if dragging {
                 withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) {
@@ -638,44 +412,53 @@ struct NotchFloatingView: View {
     }
 }
 
+// MARK: - Notch Capsule
+
 struct NotchCapsule: View {
     @ObservedObject var monitor: StatusMonitor
 
     var body: some View {
         HStack(spacing: 10) {
             ZStack {
-                Circle().fill(statusColor.opacity(0.22)).frame(width: 18, height: 18)
-                Circle().fill(statusColor).frame(width: 8, height: 8)
+                Circle()
+                    .fill(statusColor.opacity(0.25))
+                    .frame(width: 20, height: 20)
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 9, height: 9)
+                    .shadow(color: statusColor.opacity(0.6), radius: 4)
             }
-            .shadow(color: statusColor.opacity(0.7), radius: monitor.isDragOver ? 12 : 5)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: monitor.isDragOver ? 12 : 10, weight: .bold, design: .rounded))
+                    .font(.system(size: monitor.isDragOver ? 13 : 11, weight: .bold, design: .rounded))
                     .foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.92))
-                    .tracking(monitor.isDragOver ? 1.8 : 1.2)
+                    .tracking(monitor.isDragOver ? 1.5 : 1.0)
 
                 if monitor.isDragOver {
-                    Text("Release to create a workspace")
-                        .font(.system(size: 8.5, weight: .medium, design: .rounded))
-                        .foregroundColor(.green.opacity(0.82))
+                    Text("释放以创建工作区")
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundColor(.green.opacity(0.85))
                 }
             }
 
             Spacer(minLength: 0)
 
             Image(systemName: monitor.isDragOver ? "arrow.down.circle.fill" : (monitor.isExpanded ? "chevron.up" : "sparkles"))
-                .font(.system(size: monitor.isDragOver ? 17 : 12, weight: .semibold))
-                .foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.52))
+                .font(.system(size: monitor.isDragOver ? 18 : 13, weight: .semibold))
+                .foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.55))
         }
-        .padding(.horizontal, monitor.isDragOver ? 18 : 14)
-        .frame(width: monitor.isDragOver ? 304 : 218, height: monitor.isDragOver ? 58 : 36)
+        .padding(.horizontal, monitor.isDragOver ? 20 : 16)
+        .frame(width: monitor.isDragOver ? 320 : 230, height: monitor.isDragOver ? 60 : 38)
         .background(capsuleBackground)
         .overlay(
-            RoundedRectangle(cornerRadius: monitor.isDragOver ? 29 : 18)
-                .stroke(monitor.isDragOver ? Color.green.opacity(0.95) : Color.white.opacity(0.08), lineWidth: monitor.isDragOver ? 2 : 1)
+            RoundedRectangle(cornerRadius: monitor.isDragOver ? 30 : 19)
+                .stroke(
+                    monitor.isDragOver ? Color.green.opacity(0.9) : Color.white.opacity(0.12),
+                    lineWidth: monitor.isDragOver ? 2 : 1
+                )
         )
-        .shadow(color: monitor.isDragOver ? .green.opacity(0.38) : .black.opacity(0.45), radius: monitor.isDragOver ? 22 : 14, y: monitor.isDragOver ? 8 : 6)
+        .shadow(color: monitor.isDragOver ? .green.opacity(0.35) : .black.opacity(0.5), radius: monitor.isDragOver ? 24 : 16, y: monitor.isDragOver ? 8 : 6)
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
@@ -693,7 +476,7 @@ struct NotchCapsule: View {
     }
 
     private var title: String {
-        if monitor.isDragOver { return "DROP FOLDER" }
+        if monitor.isDragOver { return "拖入文件夹" }
         if !monitor.currentStatus.active_agents.isEmpty {
             return monitor.currentStatus.active_agents.joined(separator: " · ").uppercased()
         }
@@ -710,73 +493,78 @@ struct NotchCapsule: View {
     }
 
     private var capsuleBackground: some View {
-        RoundedRectangle(cornerRadius: monitor.isDragOver ? 29 : 18)
+        RoundedRectangle(cornerRadius: monitor.isDragOver ? 30 : 19)
             .fill(
                 LinearGradient(
                     colors: monitor.isDragOver
-                        ? [Color.green.opacity(0.30), Color.black.opacity(0.88), Color.green.opacity(0.18)]
-                        : [Color.black.opacity(0.94), Color(red: 0.04, green: 0.045, blue: 0.055).opacity(0.92)],
+                        ? [Color.green.opacity(0.25), Color.black.opacity(0.90), Color.green.opacity(0.15)]
+                        : [Color.black.opacity(0.96), Color(red: 0.04, green: 0.045, blue: 0.06).opacity(0.94)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: monitor.isDragOver ? 29 : 18)
-                    .fill(Color.white.opacity(0.035))
-                    .blur(radius: 0.5)
+                RoundedRectangle(cornerRadius: monitor.isDragOver ? 30 : 19)
+                    .fill(.ultraThinMaterial.opacity(0.15))
             )
     }
 }
 
-struct NotchPanel: View {
+// MARK: - Panel Content
+
+struct NotchPanelContent: View {
     @ObservedObject var monitor: StatusMonitor
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
+            // Tab bar
             HStack(spacing: 8) {
-                TabButton(title: "Status", icon: "waveform.path.ecg", isSelected: monitor.selectedTab == 0) {
+                TabButton(title: "状态", icon: "waveform.path.ecg", isSelected: monitor.selectedTab == 0) {
                     monitor.selectedTab = 0
                 }
-                TabButton(title: "Workspaces", icon: "folder.fill", badge: monitor.workspaces.count, isSelected: monitor.selectedTab == 1) {
+                TabButton(title: "工作区", icon: "folder.fill", badge: monitor.workspaces.count, isSelected: monitor.selectedTab == 1) {
                     monitor.selectedTab = 1
                 }
             }
-            .padding(.top, 12)
-            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
 
             if monitor.selectedTab == 0 {
-                StatusPanel(monitor: monitor)
+                StatusTab(monitor: monitor)
             } else {
-                WorkspacePanel(monitor: monitor)
+                WorkspaceTab(monitor: monitor)
             }
         }
-        .frame(width: 356, height: 456)
+        .frame(width: 360, height: 460)
         .background(panelBackground)
         .overlay(
-            UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 26, bottomTrailingRadius: 26, topTrailingRadius: 8)
-                .stroke(Color.white.opacity(0.09), lineWidth: 1)
+            UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 28, bottomTrailingRadius: 28, topTrailingRadius: 6)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.55), radius: 30, y: 18)
+        .shadow(color: .black.opacity(0.6), radius: 32, y: 20)
     }
 
     private var panelBackground: some View {
-        UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 26, bottomTrailingRadius: 26, topTrailingRadius: 8)
+        UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 28, bottomTrailingRadius: 28, topTrailingRadius: 6)
             .fill(
                 LinearGradient(
                     colors: [
-                        Color(red: 0.055, green: 0.058, blue: 0.07).opacity(0.96),
-                        Color.black.opacity(0.90),
+                        Color(red: 0.06, green: 0.062, blue: 0.075).opacity(0.97),
+                        Color.black.opacity(0.92),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             )
             .overlay(
-                UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 26, bottomTrailingRadius: 26, topTrailingRadius: 8)
-                    .fill(.ultraThinMaterial.opacity(0.18))
+                UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 28, bottomTrailingRadius: 28, topTrailingRadius: 6)
+                    .fill(.ultraThinMaterial.opacity(0.22))
             )
     }
 }
+
+// MARK: - Tab Button
 
 struct TabButton: View {
     let title: String
@@ -788,49 +576,59 @@ struct TabButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
-                Text(title).font(.system(size: 11, weight: .bold, design: .rounded))
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
                 if let badge {
                     Text("\(badge)")
                         .font(.system(size: 9, weight: .bold, design: .rounded))
-                        .foregroundColor(isSelected ? .black : .white.opacity(0.65))
-                        .padding(.horizontal, 5)
+                        .foregroundColor(isSelected ? .black : .white.opacity(0.7))
+                        .padding(.horizontal, 6)
                         .padding(.vertical, 1)
-                        .background(Capsule().fill(isSelected ? Color.green : Color.white.opacity(0.12)))
+                        .background(Capsule().fill(isSelected ? Color.green : Color.white.opacity(0.14)))
                 }
             }
             .foregroundColor(isSelected ? .white : .white.opacity(0.45))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 9)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? Color.white.opacity(0.105) : Color.clear)
+                RoundedRectangle(cornerRadius: 13)
+                    .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
             )
         }
         .buttonStyle(.plain)
     }
 }
 
-struct StatusPanel: View {
+// MARK: - Status Tab
+
+struct StatusTab: View {
     @ObservedObject var monitor: StatusMonitor
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(spacing: 14) {
                 HeroCard(
                     icon: monitor.currentStatus.status == "running" ? "bolt.fill" : "moon.zzz.fill",
                     title: monitor.currentStatus.status.uppercased(),
-                    subtitle: monitor.currentStatus.active_agents.isEmpty ? "No active agents" : monitor.currentStatus.active_agents.joined(separator: " · "),
+                    subtitle: monitor.currentStatus.active_agents.isEmpty ? "无活跃 Agent" : monitor.currentStatus.active_agents.joined(separator: " · "),
                     tint: statusColor
                 )
 
                 if !monitor.currentStatus.pipeline.isEmpty {
                     GlassCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            SectionLabel("Pipeline")
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                SectionLabel("流水线")
+                                Spacer()
+                                Text("\(Int(monitor.currentStatus.progress * 100))%")
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundColor(.green)
+                            }
                             Text(monitor.currentStatus.pipeline)
                                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white.opacity(0.86))
+                                .foregroundColor(.white.opacity(0.88))
                             ProgressView(value: monitor.currentStatus.progress)
                                 .progressViewStyle(.linear)
                                 .tint(.green)
@@ -838,12 +636,32 @@ struct StatusPanel: View {
                     }
                 }
 
-                ActionButton(title: "Quit Agentbox", icon: "power", tint: .red) {
+                if !monitor.currentStatus.alerts.isEmpty {
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            SectionLabel("告警")
+                            ForEach(monitor.currentStatus.alerts) { alert in
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(alert.level == "error" ? .red : .orange)
+                                        .frame(width: 7, height: 7)
+                                    Text(alert.message)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.75))
+                                        .lineLimit(2)
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ActionButton(title: "退出 Agentbox", icon: "power", tint: .red) {
                     NSApp.terminate(nil)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 18)
         }
     }
 
@@ -856,94 +674,139 @@ struct StatusPanel: View {
     }
 }
 
-struct WorkspacePanel: View {
+// MARK: - Workspace Tab
+
+struct WorkspaceTab: View {
     @ObservedObject var monitor: StatusMonitor
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 12) {
-                DropZone(monitor: monitor)
+            VStack(spacing: 14) {
+                DropZoneCard(monitor: monitor)
 
-                if monitor.workspaces.isEmpty {
+                if monitor.isCreating {
+                    CreatingCard()
+                }
+
+                if monitor.workspaces.isEmpty && !monitor.isCreating {
                     EmptyWorkspaceCard()
                 } else {
                     ForEach(monitor.workspaces) { workspace in
                         WorkspaceRow(workspace: workspace, monitor: monitor)
                     }
 
-                    ActionButton(title: "Close All Workspaces", icon: "xmark.bin.fill", tint: .red.opacity(0.85)) {
-                        monitor.deleteAllWorkspaces()
+                    if !monitor.workspaces.isEmpty {
+                        ActionButton(title: "关闭所有工作区", icon: "xmark.bin.fill", tint: .red.opacity(0.85)) {
+                            monitor.deleteAllWorkspaces()
+                        }
                     }
                 }
 
-                ActionButton(title: "Quit Agentbox", icon: "power", tint: .red) {
+                ActionButton(title: "退出 Agentbox", icon: "power", tint: .red) {
                     NSApp.terminate(nil)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 18)
         }
     }
 }
 
-struct DropZone: View {
+// MARK: - Drop Zone Card
+
+struct DropZoneCard: View {
     @ObservedObject var monitor: StatusMonitor
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             ZStack {
                 Circle()
                     .fill((monitor.isDragOver ? Color.green : Color.white).opacity(0.10))
-                    .frame(width: 58, height: 58)
+                    .frame(width: 62, height: 62)
+
+                if monitor.isDragOver {
+                    // Pulsing ring
+                    Circle()
+                        .stroke(Color.green.opacity(0.5), lineWidth: 2)
+                        .frame(width: 62, height: 62)
+                        .scaleEffect(monitor.isDragOver ? 1.3 : 1.0)
+                        .opacity(monitor.isDragOver ? 0 : 1)
+                        .animation(.easeOut(duration: 1.0).repeatForever(autoreverses: false), value: monitor.isDragOver)
+                }
+
                 Image(systemName: monitor.isDragOver ? "tray.and.arrow.down.fill" : "folder.badge.plus")
-                    .font(.system(size: 25, weight: .semibold))
-                    .foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.50))
+                    .font(.system(size: 27, weight: .semibold))
+                    .foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.55))
+                    .scaleEffect(monitor.isDragOver ? 1.1 : 1.0)
             }
 
-            Text(monitor.isDragOver ? "Release to import folder" : monitor.lastDropMessage)
+            Text(monitor.isDragOver ? "释放以导入文件夹" : monitor.lastDropMessage)
                 .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.82))
+                .foregroundColor(monitor.isDragOver ? .green : .white.opacity(0.85))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
 
-            Text("Finder/Desktop folder → Agentbox, or click to choose")
+            Text("拖拽文件夹至此，或点击选择")
                 .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundColor(.white.opacity(0.36))
+                .foregroundColor(.white.opacity(0.38))
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
+        .padding(.vertical, 22)
         .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(monitor.isDragOver ? Color.green.opacity(0.13) : Color.white.opacity(0.045))
+            RoundedRectangle(cornerRadius: 22)
+                .fill(monitor.isDragOver ? Color.green.opacity(0.14) : Color.white.opacity(0.05))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 22)
                 .stroke(
                     monitor.isDragOver ? Color.green.opacity(0.95) : Color.white.opacity(0.10),
-                    style: StrokeStyle(lineWidth: monitor.isDragOver ? 2 : 1, dash: monitor.isDragOver ? [] : [7, 5])
+                    style: StrokeStyle(lineWidth: monitor.isDragOver ? 2 : 1, dash: monitor.isDragOver ? [] : [8, 5])
                 )
         )
-        .shadow(color: monitor.isDragOver ? .green.opacity(0.25) : .clear, radius: 18)
+        .shadow(color: monitor.isDragOver ? .green.opacity(0.30) : .clear, radius: 20)
         .contentShape(Rectangle())
         .onTapGesture {
             monitor.chooseFolderWithPanel()
         }
-        .animation(.spring(response: 0.24, dampingFraction: 0.76), value: monitor.isDragOver)
+        .animation(.spring(response: 0.25, dampingFraction: 0.76), value: monitor.isDragOver)
     }
 }
+
+// MARK: - Creating Card
+
+struct CreatingCard: View {
+    var body: some View {
+        GlassCard {
+            HStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .scaleEffect(0.8)
+                    .tint(.green)
+                Text("正在创建工作区...")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white.opacity(0.85))
+                Spacer()
+            }
+        }
+    }
+}
+
+// MARK: - Empty Workspace
 
 struct EmptyWorkspaceCard: View {
     var body: some View {
         GlassCard {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Image(systemName: "rectangle.stack.badge.plus")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.35))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("No workspaces")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.38))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("暂无工作区")
                         .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundColor(.white.opacity(0.82))
-                    Text("Drop a folder to create an isolated Agentbox workspace.")
+                        .foregroundColor(.white.opacity(0.85))
+                    Text("拖拽文件夹至此处即可创建隔离的 Agentbox 工作区")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundColor(.white.opacity(0.42))
+                        .foregroundColor(.white.opacity(0.44))
                 }
                 Spacer()
             }
@@ -951,40 +814,49 @@ struct EmptyWorkspaceCard: View {
     }
 }
 
+// MARK: - Workspace Row
+
 struct WorkspaceRow: View {
     let workspace: WorkspaceItem
     @ObservedObject var monitor: StatusMonitor
 
     var body: some View {
         GlassCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.blue.opacity(0.18))
-                            .frame(width: 36, height: 36)
+                        RoundedRectangle(cornerRadius: 11)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.blue.opacity(0.22), Color.blue.opacity(0.10)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 40, height: 40)
                         Image(systemName: "folder.fill")
-                            .font(.system(size: 17))
+                            .font(.system(size: 18))
                             .foregroundColor(.blue.opacity(0.95))
                     }
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(workspace.name)
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundColor(.white.opacity(0.92))
                             .lineLimit(1)
                         Text(workspace.folder_path)
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.32))
+                            .foregroundColor(.white.opacity(0.35))
                             .lineLimit(1)
+                            .truncationMode(.middle)
                     }
 
                     Spacer()
 
                     Button(action: { monitor.deleteWorkspace(id: workspace.id) }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(.red.opacity(0.70))
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.red.opacity(0.65))
                     }
                     .buttonStyle(.plain)
                 }
@@ -997,11 +869,15 @@ struct WorkspaceRow: View {
                     Spacer(minLength: 4)
 
                     Chip(text: workspace.pipeline, color: .blue)
+
+                    StatusChip(status: workspace.status)
                 }
             }
         }
     }
 }
+
+// MARK: - Hero Card
 
 struct HeroCard: View {
     let icon: String
@@ -1011,21 +887,21 @@ struct HeroCard: View {
 
     var body: some View {
         GlassCard {
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 ZStack {
-                    Circle().fill(tint.opacity(0.16)).frame(width: 46, height: 46)
+                    Circle().fill(tint.opacity(0.18)).frame(width: 50, height: 50)
                     Image(systemName: icon)
-                        .font(.system(size: 19, weight: .bold))
+                        .font(.system(size: 21, weight: .bold))
                         .foregroundColor(tint)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundColor(.white.opacity(0.92))
                     Text(subtitle)
                         .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundColor(.white.opacity(0.45))
+                        .foregroundColor(.white.opacity(0.48))
                         .lineLimit(2)
                 }
 
@@ -1035,20 +911,22 @@ struct HeroCard: View {
     }
 }
 
+// MARK: - Reusable Components
+
 struct GlassCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
         content
-            .padding(12)
+            .padding(14)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 18)
-                    .fill(Color.white.opacity(0.055))
+                    .fill(.ultraThinMaterial.opacity(0.35))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 1)
             )
     }
 }
@@ -1063,16 +941,16 @@ struct ActionButton: View {
         Button(action: action) {
             HStack {
                 Image(systemName: icon)
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                 Text(title)
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                 Spacer()
             }
             .foregroundColor(tint)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 14).fill(tint.opacity(0.11)))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(tint.opacity(0.16), lineWidth: 1))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(RoundedRectangle(cornerRadius: 15).fill(tint.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 15).stroke(tint.opacity(0.18), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -1085,11 +963,36 @@ struct Chip: View {
     var body: some View {
         Text(text)
             .font(.system(size: 9, weight: .bold, design: .monospaced))
-            .foregroundColor(color.opacity(0.94))
-            .padding(.horizontal, 7)
+            .foregroundColor(color.opacity(0.95))
+            .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Capsule().fill(color.opacity(0.13)))
-            .overlay(Capsule().stroke(color.opacity(0.20), lineWidth: 1))
+            .background(Capsule().fill(color.opacity(0.14)))
+            .overlay(Capsule().stroke(color.opacity(0.22), lineWidth: 1))
+    }
+}
+
+struct StatusChip: View {
+    let status: String
+
+    var body: some View {
+        let color: Color = {
+            switch status.lowercased() {
+            case "running", "active": return .green
+            case "stopped", "idle": return .gray
+            case "error", "failed": return .red
+            default: return .gray
+            }
+        }()
+
+        HStack(spacing: 3) {
+            Circle().fill(color).frame(width: 5, height: 5)
+            Text(status)
+                .font(.system(size: 8, weight: .bold, design: .rounded))
+        }
+        .foregroundColor(color.opacity(0.95))
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(color.opacity(0.12)))
     }
 }
 
@@ -1100,45 +1003,8 @@ struct SectionLabel: View {
     var body: some View {
         Text(text.uppercased())
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundColor(.white.opacity(0.38))
-            .tracking(1.2)
-    }
-}
-
-// MARK: - Mouse leave
-
-final class MouseLeaveView: NSView {
-    var onMouseLeave: (() -> Void)?
-
-    override func mouseExited(with event: NSEvent) {
-        onMouseLeave?()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        addTrackingArea(
-            NSTrackingArea(
-                rect: bounds,
-                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                owner: self,
-                userInfo: nil
-            )
-        )
-    }
-}
-
-struct MouseExitView: NSViewRepresentable {
-    var onMouseLeave: () -> Void
-
-    func makeNSView(context: Context) -> MouseLeaveView {
-        let view = MouseLeaveView()
-        view.onMouseLeave = onMouseLeave
-        return view
-    }
-
-    func updateNSView(_ nsView: MouseLeaveView, context: Context) {
-        nsView.onMouseLeave = onMouseLeave
+            .foregroundColor(.white.opacity(0.40))
+            .tracking(1.3)
     }
 }
 
@@ -1149,8 +1015,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        notchManager.createFloatingWindow()
+        notchManager.createWindow()
         notchManager.monitor.startMonitoring()
+        notchManager.monitor.logAction("App launched successfully")
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
