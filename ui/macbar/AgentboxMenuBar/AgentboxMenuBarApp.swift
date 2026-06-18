@@ -282,6 +282,128 @@ final class StatusMonitor: ObservableObject {
         for id in ids { deleteWorkspace(id: id) }
     }
 
+    // MARK: - Agent Quick Launch
+
+    func launchAgent(workspace: WorkspaceItem, agentType: String) {
+        logAction("launchAgent ws=\(workspace.id) agent=\(agentType)")
+
+        // Try backend first
+        guard let url = URL(string: "\(baseURL)/agent/open") else {
+            launchAgentLocal(workspace: workspace, agentType: agentType)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 5
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "agent": agentType,
+            "workspace": workspace.id,
+            "folder_path": workspace.folder_path,
+        ])
+
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let error = error as? URLError, error.code == .cannotConnectToHost || error.code == .cannotFindHost || error.code == .timedOut {
+                    self.launchAgentLocal(workspace: workspace, agentType: agentType)
+                    return
+                }
+                if let http = response as? HTTPURLResponse, http.statusCode < 400 {
+                    self.lastDropMessage = "🚀 \(agentType) 已启动"
+                    self.logAction("launchAgent success (backend) agent=\(agentType)")
+                    self.updateWorkspaceStatus(workspaceId: workspace.id, status: "running")
+                } else {
+                    self.launchAgentLocal(workspace: workspace, agentType: agentType)
+                }
+            }
+        }.resume()
+    }
+
+    private func launchAgentLocal(workspace: WorkspaceItem, agentType: String) {
+        // Open Terminal at the workspace folder with agent command
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "cd '\(workspace.folder_path)' && echo '🤖 Agentbox: Starting \(agentType) agent in \(workspace.name)' && echo '📁 Workspace: \(workspace.folder_path)' && echo '---' && python3 -m agentbox --agent \(agentType) --workspace \(workspace.id) 2>/dev/null || echo 'Agent CLI not found. Install agentbox: pip install -e .' && bash"
+        end tell
+        """
+
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+            if let error {
+                logAction("launchAgent AppleScript error: \(error)")
+                // Fallback: just open Terminal
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"), configuration: NSWorkspace.OpenConfiguration())
+            }
+        }
+
+        lastDropMessage = "🚀 \(agentType) 已启动（本地 Terminal）"
+        logAction("launchAgent success (local Terminal) agent=\(agentType)")
+        updateWorkspaceStatus(workspaceId: workspace.id, status: "running")
+    }
+
+    func updateWorkspaceStatus(workspaceId: String, status: String) {
+        // Update local
+        var local = loadLocalWorkspaces()
+        for i in local.indices {
+            if local[i].id == workspaceId {
+                local[i].status = status
+            }
+        }
+        saveLocalWorkspaces(local)
+
+        // Try backend update
+        guard let url = URL(string: "\(baseURL)/workspaces/\(workspaceId)") else {
+            loadLocalWorkspacesIntoUI()
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 3
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": status])
+        URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
+            DispatchQueue.main.async { self?.fetchWorkspaces() }
+        }.resume()
+
+        loadLocalWorkspacesIntoUI()
+    }
+
+    func addAgentToWorkspace(workspaceId: String, agentType: String) {
+        // Update local
+        var local = loadLocalWorkspaces()
+        for i in local.indices {
+            if local[i].id == workspaceId && !local[i].agents.contains(agentType) {
+                local[i].agents.append(agentType)
+            }
+        }
+        saveLocalWorkspaces(local)
+
+        // Try backend
+        guard let url = URL(string: "\(baseURL)/workspaces/\(workspaceId)") else {
+            loadLocalWorkspacesIntoUI()
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 3
+
+        if let ws = local.first(where: { $0.id == workspaceId }) {
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["agents": ws.agents])
+        }
+
+        URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
+            DispatchQueue.main.async { self?.fetchWorkspaces() }
+        }.resume()
+
+        loadLocalWorkspacesIntoUI()
+        logAction("addAgentToWorkspace ws=\(workspaceId) agent=\(agentType)")
+    }
+
     func logAction(_ message: String) {
         let line = "[\(Date())] \(message)\n"
         let url = URL(fileURLWithPath: "/tmp/agentbox_notch_drag.log")
@@ -447,13 +569,14 @@ final class NotchManager {
             return
         }
 
-        let visibleFrame = screen.visibleFrame
+        // Use screen.frame (not visibleFrame) so the capsule sits flush under the menu bar / notch
+        let screenFrame = screen.frame
         let width: CGFloat = 380
-        let height: CGFloat = 560
+        let height: CGFloat = 600
 
         let rect = NSRect(
-            x: visibleFrame.midX - width / 2,
-            y: visibleFrame.maxY - height,
+            x: screenFrame.midX - width / 2,
+            y: screenFrame.maxY - height,
             width: width,
             height: height
         )
@@ -467,7 +590,7 @@ final class NotchManager {
 
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.ignoresMouseEvents = false
@@ -992,8 +1115,58 @@ struct WorkspaceRow: View {
 
                     StatusChip(status: workspace.status)
                 }
+
+                // Quick launch agent buttons
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        AgentLaunchButton(label: "Coder", color: .green) {
+                            monitor.launchAgent(workspace: workspace, agentType: "coder")
+                        }
+                        AgentLaunchButton(label: "Architect", color: .purple) {
+                            monitor.launchAgent(workspace: workspace, agentType: "architect")
+                        }
+                        AgentLaunchButton(label: "Reviewer", color: .orange) {
+                            monitor.launchAgent(workspace: workspace, agentType: "reviewer")
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        AgentLaunchButton(label: "Codex", color: .cyan) {
+                            monitor.launchAgent(workspace: workspace, agentType: "codex")
+                        }
+                        AgentLaunchButton(label: "Claude", color: .indigo) {
+                            monitor.launchAgent(workspace: workspace, agentType: "claude")
+                        }
+                        AgentLaunchButton(label: "Aider", color: .pink) {
+                            monitor.launchAgent(workspace: workspace, agentType: "aider")
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+struct AgentLaunchButton: View {
+    let label: String
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 9, weight: .bold))
+                Text(label)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+            }
+            .foregroundColor(color)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 11).fill(color.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(color.opacity(0.20), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 }
 
