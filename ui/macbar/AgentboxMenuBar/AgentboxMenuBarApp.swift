@@ -387,6 +387,21 @@ final class DragReceivingHostingView: NSHostingView<AnyView> {
     required init(rootView: AnyView) { fatalError() }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Pass-through mouse events in transparent areas when collapsed.
+    /// When collapsed, only the capsule (~50px at top) should be interactive.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let mon = coordinator.monitor
+        if mon.isExpanded || mon.isDragOver {
+            // Panel is visible — accept all events in bounds
+            return super.hitTest(point)
+        }
+        // Collapsed: only the capsule at the top is interactive.
+        // Non-flipped coordinates: top = high y. Capsule ≈ top 60px.
+        let capsuleRect = NSRect(x: 0, y: bounds.height - 70, width: bounds.width, height: 70)
+        guard capsuleRect.contains(point) else { return nil }
+        return super.hitTest(point)
+    }
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         let paths = coordinator.extractFolderPaths(sender.draggingPasteboard)
         DispatchQueue.main.async {
@@ -442,17 +457,17 @@ final class NotchManager {
     let monitor = StatusMonitor()
 
     private let windowWidth: CGFloat = 380
-    private let collapsedHeight: CGFloat = 44
-    private let expandedHeight: CGFloat = 520
+    private let fullHeight: CGFloat = 520
 
+    /// Window is always full-size; hitTest pass-through handles the "blocking" problem.
     func createWindow() {
         guard let screen = NSScreen.main else { return }
         let screenFrame = screen.frame
         let rect = NSRect(
             x: screenFrame.midX - windowWidth / 2,
-            y: screenFrame.maxY - collapsedHeight,
+            y: screenFrame.maxY - fullHeight,
             width: windowWidth,
-            height: collapsedHeight
+            height: fullHeight
         )
 
         let panel = VisiblePanel(
@@ -472,28 +487,17 @@ final class NotchManager {
 
         let coordinator = NotchDragCoordinator(monitor: monitor)
         let rootView = AnyView(NotchContentView(monitor: monitor))
-        panel.contentView = DragReceivingHostingView(rootView: rootView, coordinator: coordinator)
+        let hostingView = DragReceivingHostingView(rootView: rootView, coordinator: coordinator)
+        // Disable NSHostingView's automatic window size management to prevent
+        // constraint crashes when SwiftUI content size differs from window size.
+        if #available(macOS 13.0, *) {
+            hostingView.sizingOptions = []
+        }
+        panel.contentView = hostingView
 
         panel.orderFrontRegardless()
         window = panel
-        monitor.logAction("Window created frame=\(rect)")
-    }
-
-    func updateWindowFrame(expanded: Bool) {
-        guard let window, let screen = NSScreen.main else { return }
-        let screenFrame = screen.frame
-        let height = expanded ? expandedHeight : collapsedHeight
-        let rect = NSRect(
-            x: screenFrame.midX - windowWidth / 2,
-            y: screenFrame.maxY - height,
-            width: windowWidth,
-            height: height
-        )
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.3
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            window.animator().setFrame(rect, display: true)
-        }
+        monitor.logAction("Window created frame=\(rect) (fixed size, hitTest pass-through)")
     }
 }
 
@@ -514,9 +518,6 @@ struct NotchContentView: View {
         }
         .frame(width: 380, alignment: .top)
         .frame(maxHeight: .infinity, alignment: .top)
-        .onChange(of: monitor.isExpanded) { _, expanded in
-            NotchManager.shared.updateWindowFrame(expanded: expanded)
-        }
     }
 }
 
