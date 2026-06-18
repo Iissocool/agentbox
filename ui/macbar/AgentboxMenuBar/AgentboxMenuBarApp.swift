@@ -563,6 +563,10 @@ final class NotchManager {
     var window: NSPanel?
     let monitor = StatusMonitor()
 
+    private let windowWidth: CGFloat = 380
+    private let collapsedHeight: CGFloat = 52
+    private let expandedHeight: CGFloat = 540
+
     func createWindow() {
         guard let screen = NSScreen.main else {
             monitor.logAction("ERROR: NSScreen.main is nil")
@@ -571,13 +575,12 @@ final class NotchManager {
 
         // Use screen.frame (not visibleFrame) so the capsule sits flush under the menu bar / notch
         let screenFrame = screen.frame
-        let width: CGFloat = 380
-        let height: CGFloat = 600
+        let height = collapsedHeight
 
         let rect = NSRect(
-            x: screenFrame.midX - width / 2,
+            x: screenFrame.midX - windowWidth / 2,
             y: screenFrame.maxY - height,
-            width: width,
+            width: windowWidth,
             height: height
         )
 
@@ -608,6 +611,23 @@ final class NotchManager {
 
         window = panel
         monitor.logAction("Window created frame=\(rect) level=\(panel.level.rawValue)")
+    }
+
+    func updateWindowFrame(expanded: Bool) {
+        guard let window, let screen = NSScreen.main else { return }
+        let screenFrame = screen.frame
+        let height = expanded ? expandedHeight : collapsedHeight
+        let rect = NSRect(
+            x: screenFrame.midX - windowWidth / 2,
+            y: screenFrame.maxY - height,
+            width: windowWidth,
+            height: height
+        )
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            window.animator().setFrame(rect, display: true)
+        }
     }
 }
 
@@ -651,6 +671,9 @@ struct NotchContentView: View {
                     monitor.selectedTab = 1
                 }
             }
+        }
+        .onChange(of: monitor.isExpanded) { _, expanded in
+            NotchManager.shared.updateWindowFrame(expanded: expanded)
         }
     }
 }
